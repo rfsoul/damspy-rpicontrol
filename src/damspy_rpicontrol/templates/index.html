@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>damspy-rpicontrol</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: #f2f4f7;
+      color: #111827;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1rem 3rem;
+    }
+
+    section {
+      background: #ffffff;
+      border: 1px solid #d0d7de;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    form {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    label {
+      display: grid;
+      gap: 0.35rem;
+      font-weight: 600;
+    }
+
+    select, input, button {
+      font: inherit;
+      padding: 0.7rem 0.8rem;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+    }
+
+    button {
+      cursor: pointer;
+      background: #0f172a;
+      color: #ffffff;
+      border: none;
+    }
+
+    button.secondary {
+      background: #475569;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 1rem;
+      min-height: 6rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>damspy-rpicontrol</h1>
+      <p>Manual LAN control page for the Raspberry Pi-connected RODE RXCC.</p>
+      <button class="secondary" id="health-check" type="button">Check health</button>
+    </section>
+
+    <section>
+      <h2>Front-end Mode</h2>
+      <form data-endpoint="/api/frontend/mode">
+        <label>
+          Mode
+          <select name="mode">
+            <option value="transmitting-pa">transmitting-pa</option>
+            <option value="bypass">bypass</option>
+            <option value="receiving">receiving</option>
+          </select>
+        </label>
+        <button type="submit">Apply mode</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Antenna Path</h2>
+      <form data-endpoint="/api/antenna">
+        <label>
+          Antenna
+          <select name="path">
+            <option value="main">main</option>
+            <option value="secondary">secondary</option>
+          </select>
+        </label>
+        <button type="submit">Set antenna</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>RF Start</h2>
+      <form data-endpoint="/api/rf/start">
+        <label>
+          Antenna
+          <select name="antenna">
+            <option value="main">main</option>
+            <option value="secondary">secondary</option>
+          </select>
+        </label>
+        <label>
+          Channel
+          <input name="channel" type="number" min="0" max="80" value="10">
+        </label>
+        <label>
+          Power
+          <input name="power" type="number" min="0" max="10" value="5">
+        </label>
+        <button type="submit">Start RF</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>RF Stop</h2>
+      <button id="stop-rf" type="button">Stop RF</button>
+    </section>
+
+    <section>
+      <h2>Result</h2>
+      <pre id="output">Ready.</pre>
+    </section>
+  </main>
+
+  <script>
+    const output = document.getElementById("output");
+
+    function writeResult(title, payload) {
+      output.textContent = `${title}\n${JSON.stringify(payload, null, 2)}`;
+    }
+
+    async function requestJson(endpoint, payload, method = "POST") {
+      const response = await fetch(endpoint, {
+        method,
+        headers: payload ? { "Content-Type": "application/json" } : {},
+        body: payload ? JSON.stringify(payload) : undefined
+      });
+
+      let body;
+      try {
+        body = await response.json();
+      } catch (error) {
+        body = { detail: "Response was not valid JSON." };
+      }
+
+      if (!response.ok) {
+        throw body;
+      }
+
+      return body;
+    }
+
+    document.querySelectorAll("form[data-endpoint]").forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(form).entries());
+
+        if ("channel" in data) {
+          data.channel = Number(data.channel);
+        }
+        if ("power" in data) {
+          data.power = Number(data.power);
+        }
+
+        try {
+          const result = await requestJson(form.dataset.endpoint, data);
+          writeResult("Success", result);
+        } catch (error) {
+          writeResult("Error", error);
+        }
+      });
+    });
+
+    document.getElementById("stop-rf").addEventListener("click", async () => {
+      try {
+        const result = await requestJson("/api/rf/stop");
+        writeResult("Success", result);
+      } catch (error) {
+        writeResult("Error", error);
+      }
+    });
+
+    document.getElementById("health-check").addEventListener("click", async () => {
+      try {
+        const result = await requestJson("/health", null, "GET");
+        writeResult("Health", result);
+      } catch (error) {
+        writeResult("Error", error);
+      }
+    });
+  </script>
+</body>
+</html>

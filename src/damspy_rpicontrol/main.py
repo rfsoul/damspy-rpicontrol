@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+
+from damspy_rpicontrol.models import (
+    AntennaRequest,
+    FrontendModeRequest,
+    HealthResponse,
+    OperationResponse,
+    StartRfRequest,
+)
+from damspy_rpicontrol.rxcc_device import (
+    DeviceCommunicationError,
+    DeviceUnavailableError,
+    RxccController,
+)
+
+TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
+
+
+def create_app(controller: RxccController | None = None) -> FastAPI:
+    app = FastAPI(
+        title="damspy-rpicontrol",
+        summary="LAN-local FastAPI service for RODE RXCC control.",
+        version="0.1.0",
+    )
+    app.state.controller = controller or RxccController()
+
+    @app.get("/health", response_model=HealthResponse)
+    def health(request: Request) -> HealthResponse:
+        active_controller: RxccController = request.app.state.controller
+        backend_name = active_controller.backend_name
+        backend_status = backend_name if active_controller.is_available else "unavailable"
+        return HealthResponse(hid_backend=backend_status)
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> HTMLResponse:
+        return HTMLResponse(TEMPLATE_PATH.read_text(encoding="utf-8"))
+
+    @app.post("/api/frontend/mode", response_model=OperationResponse)
+    def set_frontend_mode(
+        payload: FrontendModeRequest,
+        request: Request,
+    ) -> OperationResponse:
+        controller = request.app.state.controller
+        try:
+            reports_sent = controller.apply_frontend_mode(payload.mode)
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="set_frontend_mode",
+            detail=f"Applied frontend mode `{payload.mode.value}`.",
+            reports_sent=reports_sent,
+        )
+
+    @app.post("/api/antenna", response_model=OperationResponse)
+    def set_antenna(
+        payload: AntennaRequest,
+        request: Request,
+    ) -> OperationResponse:
+        controller = request.app.state.controller
+        try:
+            reports_sent = controller.apply_antenna(payload.path)
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="set_antenna",
+            detail=f"Selected `{payload.path.value}` antenna path.",
+            reports_sent=reports_sent,
+        )
+
+    @app.post("/api/rf/start", response_model=OperationResponse)
+    def start_rf(
+        payload: StartRfRequest,
+        request: Request,
+    ) -> OperationResponse:
+        controller = request.app.state.controller
+        try:
+            reports_sent = controller.start_rf(
+                antenna=payload.antenna,
+                channel=payload.channel,
+                power=payload.power,
+            )
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="start_rf",
+            detail=(
+                "Applied transmitting-pa mode, selected "
+                f"`{payload.antenna.value}` antenna, and started RF on "
+                f"channel {payload.channel} at power {payload.power}."
+            ),
+            reports_sent=reports_sent,
+        )
+
+    @app.post("/api/rf/stop", response_model=OperationResponse)
+    def stop_rf(request: Request) -> OperationResponse:
+        controller = request.app.state.controller
+        try:
+            reports_sent = controller.stop_rf()
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="stop_rf",
+            detail="Sent RF stop command.",
+            reports_sent=reports_sent,
+        )
+
+    return app
+
+
+def _translate_device_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, DeviceUnavailableError):
+        return HTTPException(status_code=503, detail=str(exc))
+    return HTTPException(status_code=502, detail=str(exc))
+
+
+app = create_app()
+
+
+def run() -> None:
+    import uvicorn
+
+    uvicorn.run("damspy_rpicontrol.main:app", host="0.0.0.0", port=8000)
+
+
+if __name__ == "__main__":
+    run()
