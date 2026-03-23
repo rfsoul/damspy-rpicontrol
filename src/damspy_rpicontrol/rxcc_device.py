@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import importlib
 import importlib.util
 import threading
+import time
 from typing import Callable, Iterator, Protocol, Sequence
 
 from damspy_rpicontrol.models import AntennaPath, FrontendMode
@@ -107,6 +108,7 @@ class RxccController:
         self,
         device_factory: DeviceFactory | None = None,
         backend_name: str | None = None,
+        report_delay_seconds: float = 2.0,
     ) -> None:
         if device_factory is None:
             device_factory, detected_backend = detect_hid_backend()
@@ -115,6 +117,7 @@ class RxccController:
         else:
             self._device_factory = device_factory
             self.backend_name = backend_name or "custom"
+        self._report_delay_seconds = report_delay_seconds
         self._lock = threading.Lock()
 
     @property
@@ -168,7 +171,7 @@ class RxccController:
     def _write_reports(self, device: HidDevice, reports: Sequence[bytes]) -> int:
         reports_sent = 0
 
-        for report in reports:
+        for index, report in enumerate(reports):
             try:
                 result = device.write(report)
             except TypeError:
@@ -184,5 +187,7 @@ class RxccController:
                 )
 
             reports_sent += 1
+            if index < len(reports) - 1 and self._report_delay_seconds > 0:
+                time.sleep(self._report_delay_seconds)
 
         return reports_sent
