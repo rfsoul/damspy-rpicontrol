@@ -62,7 +62,11 @@ class RxccDeviceTest(unittest.TestCase):
 
     def test_start_rf_enforces_mode_then_antenna_then_start(self) -> None:
         factory = DeviceFactory()
-        controller = RxccController(device_factory=factory, backend_name="test")
+        controller = RxccController(
+            device_factory=factory,
+            backend_name="test",
+            report_delay_seconds=0,
+        )
 
         reports_sent = controller.start_rf(AntennaPath.MAIN, channel=10, power=5)
 
