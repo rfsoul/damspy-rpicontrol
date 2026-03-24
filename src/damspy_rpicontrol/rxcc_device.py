@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Callable, Iterator, Protocol, Sequence
 
-import hidapi
+import importlib
 
 from damspy_rpicontrol.models import AntennaPath, FrontendMode
 
@@ -55,12 +55,14 @@ def detect_hid_backend() -> tuple[DeviceFactory | None, str]:
     hidapi.Device(vendor_id=..., product_id=...)
     """
     try:
-        return (
-            lambda: hidapi.Device(vendor_id=VENDOR_ID, product_id=PRODUCT_ID),
-            "hidapi.Device",
-        )
+        hidapi_module = importlib.import_module("hidapi")
     except Exception:
         return None, "unavailable"
+
+    return (
+        lambda: hidapi_module.Device(vendor_id=VENDOR_ID, product_id=PRODUCT_ID),
+        "hidapi.Device",
+    )
 
 
 def build_report(payload: Sequence[int]) -> bytes:

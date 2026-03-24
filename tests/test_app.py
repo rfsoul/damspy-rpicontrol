@@ -14,6 +14,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/frontend/mode", route_paths)
         self.assertIn("/api/antenna", route_paths)
         self.assertIn("/api/rf/start", route_paths)
+        self.assertIn("/api/rf/start/ch0", route_paths)
+        self.assertIn("/api/rf/start/ch80", route_paths)
         self.assertIn("/api/rf/stop", route_paths)
 
 

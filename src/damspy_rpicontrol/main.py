@@ -17,6 +17,8 @@ from damspy_rpicontrol.rxcc_device import (
     DeviceUnavailableError,
     RxccController,
 )
+from damspy_rpicontrol.start_rf_ch0 import run as run_start_rf_ch0
+from damspy_rpicontrol.start_rf_ch80 import run as run_start_rf_ch80
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 
@@ -96,6 +98,33 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                 f"`{payload.antenna.value}` antenna, and started RF on "
                 f"channel {payload.channel} at power {payload.power}."
             ),
+            reports_sent=reports_sent,
+        )
+
+
+    @app.post("/api/rf/start/ch0", response_model=OperationResponse)
+    def start_rf_ch0() -> OperationResponse:
+        try:
+            reports_sent = run_start_rf_ch0()
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="start_rf_ch0",
+            detail="Ran fixed RF start script for channel 0 at power 10.",
+            reports_sent=reports_sent,
+        )
+
+    @app.post("/api/rf/start/ch80", response_model=OperationResponse)
+    def start_rf_ch80() -> OperationResponse:
+        try:
+            reports_sent = run_start_rf_ch80()
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="start_rf_ch80",
+            detail="Ran fixed RF start script for channel 80 at power 10.",
             reports_sent=reports_sent,
         )
 
