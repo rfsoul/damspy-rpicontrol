@@ -135,6 +135,16 @@
       </form>
     </section>
 
+
+    <section>
+      <h2>Fixed RF Test Scripts</h2>
+      <p>Runs fixed Python scripts (no parameters): channel 0 / power 10, or channel 80 / power 10.</p>
+      <div style="display:grid;gap:0.75rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
+        <button id="start-rf-ch0" type="button">Run CH0 / P10 Script</button>
+        <button id="start-rf-ch80" type="button">Run CH80 / P10 Script</button>
+      </div>
+    </section>
+
     <section>
       <h2>RF Stop</h2>
       <button id="stop-rf" type="button">Stop RF</button>
@@ -193,6 +203,25 @@
           writeResult("Error", error);
         }
       });
+    });
+
+
+    document.getElementById("start-rf-ch0").addEventListener("click", async () => {
+      try {
+        const result = await requestJson("/api/rf/start/ch0");
+        writeResult("Success", result);
+      } catch (error) {
+        writeResult("Error", error);
+      }
+    });
+
+    document.getElementById("start-rf-ch80").addEventListener("click", async () => {
+      try {
+        const result = await requestJson("/api/rf/start/ch80");
+        writeResult("Success", result);
+      } catch (error) {
+        writeResult("Error", error);
+      }
     });
 
     document.getElementById("stop-rf").addEventListener("click", async () => {
