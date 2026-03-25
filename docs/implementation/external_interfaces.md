@@ -8,6 +8,9 @@ This document describes how external repositories and AI agents should communica
 
 `http://<pi-ip>:8000`
 
+Typical_base_ip = 10.0.1.195
+Note that currently the base ip is usually the address up above.
+
 - Replace `<pi-ip>` with the Raspberry Pi host IP on your LAN.
 - FastAPI machine-readable contract endpoints:
   - Swagger UI: `http://<pi-ip>:8000/docs`
@@ -40,7 +43,7 @@ Use `/openapi.json` as the canonical machine-readable contract, and use this Mar
 #### curl (Linux/macOS)
 
 ```bash
-PI=http://192.168.1.50:8000
+PI=http://10.0.1.195:8000
 
 curl -sS "$PI/health"
 
@@ -56,7 +59,7 @@ curl -sS -X POST "$PI/api/rf/stop"
 #### PowerShell
 
 ```powershell
-$Base = "http://192.168.1.50:8000"
+$Base = "http://10.0.1.195:8000"
 
 Invoke-RestMethod -Uri "$Base/health" -Method GET
 
@@ -77,7 +80,7 @@ Invoke-RestMethod -Uri "$Base/api/rf/stop" -Method POST
 import requests
 import time
 
-base = "http://192.168.1.50:8000"
+base = "http://10.0.1.195:8000"
 timeout = 5
 
 health = requests.get(f"{base}/health", timeout=timeout)
