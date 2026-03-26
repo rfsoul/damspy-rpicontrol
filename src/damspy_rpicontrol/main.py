@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -9,6 +11,7 @@ from damspy_rpicontrol.models import (
     AntennaRequest,
     FrontendModeRequest,
     HealthResponse,
+    HealthcheckResponse,
     OperationResponse,
     StartRfRequest,
 )
@@ -21,6 +24,7 @@ from damspy_rpicontrol.start_rf_ch0 import run as run_start_rf_ch0
 from damspy_rpicontrol.start_rf_ch80 import run as run_start_rf_ch80
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
+HEALTHCHECK_SCRIPT_PATH = Path(__file__).resolve().parent / "healthcheck.py"
 
 
 def create_app(controller: RxccController | None = None) -> FastAPI:
@@ -126,6 +130,26 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             operation="start_rf_ch80",
             detail="Ran fixed RF start script for channel 80 at power 10.",
             reports_sent=reports_sent,
+        )
+
+    @app.post("/api/healthcheck", response_model=HealthcheckResponse)
+    def run_healthcheck() -> HealthcheckResponse:
+        result = subprocess.run(
+            [sys.executable, str(HEALTHCHECK_SCRIPT_PATH)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = result.stdout
+        if result.stderr:
+            output = f"{output}\n{result.stderr}" if output else result.stderr
+
+        passed = result.returncode == 0
+        return HealthcheckResponse(
+            operation="healthcheck",
+            passed=passed,
+            exit_code=result.returncode,
+            output=output.strip(),
         )
 
     @app.post("/api/rf/stop", response_model=OperationResponse)

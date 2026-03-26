@@ -52,3 +52,13 @@ class HealthResponse(BaseModel):
     device: str = "RODE RXCC"
     vendor_id: str = "0x19F7"
     product_id: str = "0x008C"
+
+
+class HealthcheckResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: str
+    status: str = "ok"
+    passed: bool
+    exit_code: int
+    output: str

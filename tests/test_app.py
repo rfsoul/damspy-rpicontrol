@@ -17,6 +17,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/rf/start/ch0", route_paths)
         self.assertIn("/api/rf/start/ch80", route_paths)
         self.assertIn("/api/rf/stop", route_paths)
+        self.assertIn("/api/healthcheck", route_paths)
 
 
 if __name__ == "__main__":
