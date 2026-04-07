@@ -2,7 +2,14 @@ import unittest
 
 from pydantic import ValidationError
 
-from damspy_rpicontrol.models import AntennaPath, FrontendMode, StartRfRequest
+from damspy_rpicontrol.models import (
+    AntennaPath,
+    DeviceCommand,
+    DeviceCommandRequest,
+    DeviceType,
+    FrontendMode,
+    StartRfRequest,
+)
 
 
 class StartRfRequestTest(unittest.TestCase):
@@ -25,6 +32,25 @@ class StartRfRequestTest(unittest.TestCase):
         self.assertEqual(FrontendMode.TRANSMITTING_PA.value, "transmitting-pa")
         self.assertEqual(FrontendMode.BYPASS.value, "bypass")
         self.assertEqual(FrontendMode.RECEIVING.value, "receiving")
+
+    def test_device_command_values_are_stable(self) -> None:
+        self.assertEqual(DeviceType.RXCC.value, "rxcc")
+        self.assertEqual(DeviceType.TX.value, "tx")
+        self.assertEqual(DeviceType.RX.value, "rx")
+        self.assertEqual(DeviceCommand.START_RF.value, "start-rf")
+        self.assertEqual(DeviceCommand.STOP_RF.value, "stop-rf")
+
+    def test_device_command_request_accepts_optional_fields(self) -> None:
+        request = DeviceCommandRequest(
+            mode=FrontendMode.BYPASS,
+            antenna=AntennaPath.SECONDARY,
+            channel=10,
+            power=5,
+        )
+        self.assertEqual(request.mode, FrontendMode.BYPASS)
+        self.assertEqual(request.antenna, AntennaPath.SECONDARY)
+        self.assertEqual(request.channel, 10)
+        self.assertEqual(request.power, 5)
 
 
 if __name__ == "__main__":
