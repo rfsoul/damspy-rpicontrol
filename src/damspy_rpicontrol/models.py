@@ -31,7 +31,7 @@ class StartRfRequest(BaseModel):
 
     device: str = Field(..., pattern="^(rxcc|tx|rx)$")
     antenna: AntennaPath | None = None
-    channel: int = Field(..., ge=0, le=79)
+    channel: int = Field(..., ge=0, le=80)
     power: int = Field(..., ge=0, le=10)
 
 
