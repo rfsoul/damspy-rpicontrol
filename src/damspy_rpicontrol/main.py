@@ -28,12 +28,17 @@ from damspy_rpicontrol.rxcc_device import (
     RxccController,
 )
 
-TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 HEALTHCHECK_SCRIPT_PATH = Path(__file__).resolve().parent / "healthcheck.py"
 SUPPORTED_WEB_DEVICES: dict[str, str] = {
     "rxcc": "RODE RXCC 008C",
     "tx": "Hendrix TX 008A",
     "rx": "Hendrix RX 008B",
+}
+DEVICE_TEMPLATE_FILES: dict[str, str] = {
+    "rxcc": "rxcc.html",
+    "tx": "tx.html",
+    "rx": "rx.html",
 }
 
 
@@ -72,9 +77,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             is_active = " aria-current='page'" if key == device_type else ""
             nav_links.append(f"<a href='{href}'{is_active}>{label}</a>")
 
-        html = TEMPLATE_PATH.read_text(encoding="utf-8")
-        html = html.replace("__DEVICE_KEY__", device_type)
-        html = html.replace("__DEVICE_NAME__", SUPPORTED_WEB_DEVICES[device_type])
+        html = (TEMPLATE_DIR / DEVICE_TEMPLATE_FILES[device_type]).read_text(encoding="utf-8")
         html = html.replace("__DEVICE_NAV__", " · ".join(nav_links))
         return HTMLResponse(html)
 
