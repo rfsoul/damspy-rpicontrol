@@ -127,7 +127,7 @@
 
     <section>
       <h2>Front-end Mode</h2>
-      <form data-endpoint="/api/frontend/mode">
+      <form data-endpoint="/api/frontend/mode" data-devices="rxcc">
         <label>
           Mode
           <select name="mode">
@@ -142,7 +142,7 @@
 
     <section>
       <h2>Antenna Path</h2>
-      <form data-endpoint="/api/antenna">
+      <form data-endpoint="/api/antenna" data-devices="rxcc">
         <label>
           Antenna
           <select name="path">
@@ -157,7 +157,8 @@
     <section>
       <h2>RF Start</h2>
       <form data-endpoint="/api/rf/start">
-        <label>
+        <input name="device" type="hidden" value="__DEVICE_KEY__">
+        <label data-devices="rxcc">
           Antenna
           <select name="antenna">
             <option value="main">main</option>
@@ -166,7 +167,7 @@
         </label>
         <label>
           Channel
-          <input name="channel" type="number" min="0" max="80" value="10">
+          <input name="channel" type="number" min="0" max="79" value="10">
         </label>
         <label>
           Power
@@ -176,15 +177,6 @@
       </form>
     </section>
 
-
-    <section>
-      <h2>Fixed RF Test Scripts</h2>
-      <p>Runs fixed Python scripts (no parameters): channel 0 / power 10, or channel 80 / power 10.</p>
-      <div style="display:grid;gap:0.75rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
-        <button id="start-rf-ch0" type="button">Run CH0 / P10 Script</button>
-        <button id="start-rf-ch80" type="button">Run CH80 / P10 Script</button>
-      </div>
-    </section>
 
     <section>
       <h2>RF Stop</h2>
@@ -198,6 +190,7 @@
   </main>
 
   <script>
+    const currentDevice = "__DEVICE_KEY__";
     const output = document.getElementById("output");
     const healthLed = document.getElementById("health-led");
 
@@ -235,6 +228,18 @@
       return body;
     }
 
+    document.querySelectorAll("[data-devices]").forEach((element) => {
+      const allowed = element.dataset.devices.split(",").map((part) => part.trim());
+      if (!allowed.includes(currentDevice)) {
+        const section = element.closest("section");
+        if (section) {
+          section.style.display = "none";
+        } else {
+          element.style.display = "none";
+        }
+      }
+    });
+
     document.querySelectorAll("form[data-endpoint]").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -245,6 +250,9 @@
         }
         if ("power" in data) {
           data.power = Number(data.power);
+        }
+        if (!("device" in data)) {
+          data.device = currentDevice;
         }
 
         try {
@@ -257,27 +265,12 @@
     });
 
 
-    document.getElementById("start-rf-ch0").addEventListener("click", async () => {
-      try {
-        const result = await requestJson("/api/rf/start/ch0");
-        writeResult("Success", result);
-      } catch (error) {
-        writeResult("Error", error);
-      }
-    });
-
-    document.getElementById("start-rf-ch80").addEventListener("click", async () => {
-      try {
-        const result = await requestJson("/api/rf/start/ch80");
-        writeResult("Success", result);
-      } catch (error) {
-        writeResult("Error", error);
-      }
-    });
-
     document.getElementById("stop-rf").addEventListener("click", async () => {
       try {
-        const result = await requestJson("/api/rf/stop");
+        const endpoint = currentDevice === "rxcc"
+          ? "/api/rf/stop"
+          : `/api/rf/stop/${currentDevice}`;
+        const result = await requestJson(endpoint);
         writeResult("Success", result);
       } catch (error) {
         writeResult("Error", error);

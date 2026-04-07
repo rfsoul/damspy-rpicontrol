@@ -15,13 +15,18 @@ from damspy_rpicontrol.models import (
     OperationResponse,
     StartRfRequest,
 )
+from damspy_rpicontrol.hendrix_device import (
+    DeviceCommunicationError as HendrixDeviceCommunicationError,
+    DeviceUnavailableError as HendrixDeviceUnavailableError,
+    HendrixController,
+    RX_PRODUCT_ID,
+    TX_PRODUCT_ID,
+)
 from damspy_rpicontrol.rxcc_device import (
     DeviceCommunicationError,
     DeviceUnavailableError,
     RxccController,
 )
-from damspy_rpicontrol.start_rf_ch0 import run as run_start_rf_ch0
-from damspy_rpicontrol.start_rf_ch80 import run as run_start_rf_ch80
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 HEALTHCHECK_SCRIPT_PATH = Path(__file__).resolve().parent / "healthcheck.py"
@@ -39,6 +44,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         version="0.1.0",
     )
     app.state.controller = controller or RxccController()
+    app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
+    app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
 
     @app.get("/health", response_model=HealthResponse)
     def health(request: Request) -> HealthResponse:
@@ -110,52 +117,50 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         payload: StartRfRequest,
         request: Request,
     ) -> OperationResponse:
-        controller = request.app.state.controller
-        try:
-            reports_sent = controller.start_rf(
-                antenna=payload.antenna,
-                channel=payload.channel,
-                power=payload.power,
-            )
-        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-            raise _translate_device_error(exc) from exc
+        if payload.device == "rxcc":
+            if payload.antenna is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="`antenna` is required when starting RF for RXCC.",
+                )
+            controller = request.app.state.controller
+            try:
+                reports_sent = controller.start_rf(
+                    antenna=payload.antenna,
+                    channel=payload.channel,
+                    power=payload.power,
+                )
+            except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+                raise _translate_device_error(exc) from exc
 
-        return OperationResponse(
-            operation="start_rf",
-            detail=(
+            detail = (
                 "Applied transmitting-pa mode, selected "
                 f"`{payload.antenna.value}` antenna, and started RF on "
                 f"channel {payload.channel} at power {payload.power}."
-            ),
-            reports_sent=reports_sent,
-        )
+            )
+        else:
+            controller = (
+                request.app.state.tx_controller
+                if payload.device == "tx"
+                else request.app.state.rx_controller
+            )
+            try:
+                reports_sent = controller.start_rf(
+                    channel=payload.channel,
+                    power=payload.power,
+                )
+            except (
+                HendrixDeviceUnavailableError,
+                HendrixDeviceCommunicationError,
+            ) as exc:
+                raise _translate_device_error(exc) from exc
 
+            detail = (
+                f"Sent CTX HIGH and RF start for `{payload.device}` "
+                f"on channel {payload.channel} at power {payload.power}."
+            )
 
-    @app.post("/api/rf/start/ch0", response_model=OperationResponse)
-    def start_rf_ch0() -> OperationResponse:
-        try:
-            reports_sent = run_start_rf_ch0()
-        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-            raise _translate_device_error(exc) from exc
-
-        return OperationResponse(
-            operation="start_rf_ch0",
-            detail="Ran fixed RF start script for channel 0 at power 10.",
-            reports_sent=reports_sent,
-        )
-
-    @app.post("/api/rf/start/ch80", response_model=OperationResponse)
-    def start_rf_ch80() -> OperationResponse:
-        try:
-            reports_sent = run_start_rf_ch80()
-        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-            raise _translate_device_error(exc) from exc
-
-        return OperationResponse(
-            operation="start_rf_ch80",
-            detail="Ran fixed RF start script for channel 80 at power 10.",
-            reports_sent=reports_sent,
-        )
+        return OperationResponse(operation="start_rf", detail=detail, reports_sent=reports_sent)
 
     @app.post("/api/healthcheck", response_model=HealthcheckResponse)
     def run_healthcheck() -> HealthcheckResponse:
@@ -188,6 +193,32 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         return OperationResponse(
             operation="stop_rf",
             detail="Sent RF stop command.",
+            reports_sent=reports_sent,
+        )
+
+    @app.post("/api/rf/stop/{device_type}", response_model=OperationResponse)
+    def stop_rf_device(device_type: str, request: Request) -> OperationResponse:
+        if device_type == "rxcc":
+            return stop_rf(request)
+        if device_type not in {"tx", "rx"}:
+            raise HTTPException(status_code=404, detail="Unknown device type.")
+
+        controller = (
+            request.app.state.tx_controller
+            if device_type == "tx"
+            else request.app.state.rx_controller
+        )
+        try:
+            reports_sent = controller.stop_rf()
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="stop_rf",
+            detail=f"Sent RF stop command for `{device_type}`.",
             reports_sent=reports_sent,
         )
 

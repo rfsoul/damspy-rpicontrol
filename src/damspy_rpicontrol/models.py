@@ -29,8 +29,9 @@ class AntennaRequest(BaseModel):
 class StartRfRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    antenna: AntennaPath
-    channel: int = Field(..., ge=0, le=80)
+    device: str = Field(..., pattern="^(rxcc|tx|rx)$")
+    antenna: AntennaPath | None = None
+    channel: int = Field(..., ge=0, le=79)
     power: int = Field(..., ge=0, le=10)
 
 
