@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>damspy-rpicontrol</title>
+  <title>damspy-rpicontrol · __DEVICE_NAME__</title>
   <style>
     :root {
       color-scheme: light;
@@ -29,6 +29,16 @@
       padding: 1rem;
       margin-bottom: 1rem;
       box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .device-nav {
+      font-size: 0.95rem;
+      margin: 0.6rem 0 0.8rem;
+    }
+
+    .device-nav a[aria-current="page"] {
+      font-weight: 700;
+      text-decoration: underline;
     }
 
     h1, h2 {
@@ -107,7 +117,8 @@
   <main>
     <section>
       <h1>damspy-rpicontrol</h1>
-      <p>Manual LAN control page for the Raspberry Pi-connected RODE RXCC.</p>
+      <p>Manual LAN control page for: <strong>__DEVICE_NAME__</strong> (<code>__DEVICE_KEY__</code>).</p>
+      <nav class="device-nav">Devices: __DEVICE_NAV__</nav>
       <div class="health-row">
         <button class="secondary" id="health-check" type="button">Check health</button>
         <span id="health-led" class="health-led" aria-label="Health status indicator"></span>
