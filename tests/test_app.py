@@ -29,6 +29,18 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("RODE RXCC 008C", body)
         self.assertIn("Devices:", body)
 
+    def test_tx_page_uses_tx_specific_template(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        device_route = next(route for route in app.routes if route.path == "/devices/{device_type}")
+        response = device_route.endpoint("tx")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.body.decode("utf-8")
+        self.assertIn("<code>tx</code>", body)
+        self.assertNotIn("Front-end Mode", body)
+        self.assertNotIn("Antenna Path", body)
+        self.assertNotIn("name=\"antenna\"", body)
+
 
 if __name__ == "__main__":
     unittest.main()
