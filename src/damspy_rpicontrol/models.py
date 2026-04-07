@@ -35,6 +35,28 @@ class StartRfRequest(BaseModel):
     power: int = Field(..., ge=0, le=10)
 
 
+class DeviceType(str, Enum):
+    RXCC = "rxcc"
+    TX = "tx"
+    RX = "rx"
+
+
+class DeviceCommand(str, Enum):
+    START_RF = "start-rf"
+    STOP_RF = "stop-rf"
+    SET_FRONTEND_MODE = "set-frontend-mode"
+    SET_ANTENNA = "set-antenna"
+
+
+class DeviceCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    channel: int | None = Field(default=None, ge=0, le=80)
+    power: int | None = Field(default=None, ge=0, le=10)
+    antenna: AntennaPath | None = None
+    mode: FrontendMode | None = None
+
+
 class OperationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

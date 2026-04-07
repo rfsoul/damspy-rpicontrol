@@ -9,6 +9,9 @@ from fastapi.responses import HTMLResponse
 
 from damspy_rpicontrol.models import (
     AntennaRequest,
+    DeviceCommand,
+    DeviceCommandRequest,
+    DeviceType,
     FrontendModeRequest,
     HealthResponse,
     HealthcheckResponse,
@@ -86,16 +89,11 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         payload: FrontendModeRequest,
         request: Request,
     ) -> OperationResponse:
-        controller = request.app.state.controller
-        try:
-            reports_sent = controller.apply_frontend_mode(payload.mode)
-        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-            raise _translate_device_error(exc) from exc
-
-        return OperationResponse(
-            operation="set_frontend_mode",
-            detail=f"Applied frontend mode `{payload.mode.value}`.",
-            reports_sent=reports_sent,
+        return _execute_device_command(
+            request=request,
+            device_type=DeviceType.RXCC,
+            command=DeviceCommand.SET_FRONTEND_MODE,
+            payload=DeviceCommandRequest(mode=payload.mode),
         )
 
     @app.post("/api/antenna", response_model=OperationResponse)
@@ -103,16 +101,11 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         payload: AntennaRequest,
         request: Request,
     ) -> OperationResponse:
-        controller = request.app.state.controller
-        try:
-            reports_sent = controller.apply_antenna(payload.path)
-        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-            raise _translate_device_error(exc) from exc
-
-        return OperationResponse(
-            operation="set_antenna",
-            detail=f"Selected `{payload.path.value}` antenna path.",
-            reports_sent=reports_sent,
+        return _execute_device_command(
+            request=request,
+            device_type=DeviceType.RXCC,
+            command=DeviceCommand.SET_ANTENNA,
+            payload=DeviceCommandRequest(antenna=payload.path),
         )
 
     @app.post("/api/rf/start", response_model=OperationResponse)
@@ -120,50 +113,16 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         payload: StartRfRequest,
         request: Request,
     ) -> OperationResponse:
-        if payload.device == "rxcc":
-            if payload.antenna is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="`antenna` is required when starting RF for RXCC.",
-                )
-            controller = request.app.state.controller
-            try:
-                reports_sent = controller.start_rf(
-                    antenna=payload.antenna,
-                    channel=payload.channel,
-                    power=payload.power,
-                )
-            except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-                raise _translate_device_error(exc) from exc
-
-            detail = (
-                "Applied transmitting-pa mode, selected "
-                f"`{payload.antenna.value}` antenna, and started RF on "
-                f"channel {payload.channel} at power {payload.power}."
-            )
-        else:
-            controller = (
-                request.app.state.tx_controller
-                if payload.device == "tx"
-                else request.app.state.rx_controller
-            )
-            try:
-                reports_sent = controller.start_rf(
-                    channel=payload.channel,
-                    power=payload.power,
-                )
-            except (
-                HendrixDeviceUnavailableError,
-                HendrixDeviceCommunicationError,
-            ) as exc:
-                raise _translate_device_error(exc) from exc
-
-            detail = (
-                f"Sent CTX HIGH and RF start for `{payload.device}` "
-                f"on channel {payload.channel} at power {payload.power}."
-            )
-
-        return OperationResponse(operation="start_rf", detail=detail, reports_sent=reports_sent)
+        return _execute_device_command(
+            request=request,
+            device_type=DeviceType(payload.device),
+            command=DeviceCommand.START_RF,
+            payload=DeviceCommandRequest(
+                antenna=payload.antenna,
+                channel=payload.channel,
+                power=payload.power,
+            ),
+        )
 
     @app.post("/api/healthcheck", response_model=HealthcheckResponse)
     def run_healthcheck() -> HealthcheckResponse:
@@ -187,43 +146,129 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
     @app.post("/api/rf/stop", response_model=OperationResponse)
     def stop_rf(request: Request) -> OperationResponse:
-        controller = request.app.state.controller
-        try:
-            reports_sent = controller.stop_rf()
-        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
-            raise _translate_device_error(exc) from exc
-
-        return OperationResponse(
-            operation="stop_rf",
-            detail="Sent RF stop command.",
-            reports_sent=reports_sent,
+        return _execute_device_command(
+            request=request,
+            device_type=DeviceType.RXCC,
+            command=DeviceCommand.STOP_RF,
+            payload=DeviceCommandRequest(),
         )
 
     @app.post("/api/rf/stop/{device_type}", response_model=OperationResponse)
     def stop_rf_device(device_type: str, request: Request) -> OperationResponse:
-        if device_type == "rxcc":
-            return stop_rf(request)
-        if device_type not in {"tx", "rx"}:
+        if device_type not in {device.value for device in DeviceType}:
             raise HTTPException(status_code=404, detail="Unknown device type.")
+        return _execute_device_command(
+            request=request,
+            device_type=DeviceType(device_type),
+            command=DeviceCommand.STOP_RF,
+            payload=DeviceCommandRequest(),
+        )
+
+    @app.post("/api/devices/{device_type}/commands/{command}", response_model=OperationResponse)
+    def device_command(
+        device_type: DeviceType,
+        command: DeviceCommand,
+        payload: DeviceCommandRequest,
+        request: Request,
+    ) -> OperationResponse:
+        return _execute_device_command(
+            request=request,
+            device_type=device_type,
+            command=command,
+            payload=payload,
+        )
+
+    def _execute_device_command(
+        request: Request,
+        device_type: DeviceType,
+        command: DeviceCommand,
+        payload: DeviceCommandRequest,
+    ) -> OperationResponse:
+        if device_type == DeviceType.RXCC:
+            controller = request.app.state.controller
+            try:
+                if command == DeviceCommand.SET_FRONTEND_MODE:
+                    if payload.mode is None:
+                        raise HTTPException(status_code=422, detail="`mode` is required.")
+                    reports_sent = controller.apply_frontend_mode(payload.mode)
+                    detail = f"Applied frontend mode `{payload.mode.value}`."
+                    operation = "set_frontend_mode"
+                elif command == DeviceCommand.SET_ANTENNA:
+                    if payload.antenna is None:
+                        raise HTTPException(status_code=422, detail="`antenna` is required.")
+                    reports_sent = controller.apply_antenna(payload.antenna)
+                    detail = f"Selected `{payload.antenna.value}` antenna path."
+                    operation = "set_antenna"
+                elif command == DeviceCommand.START_RF:
+                    if payload.antenna is None:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="`antenna` is required when starting RF for RXCC.",
+                        )
+                    if payload.channel is None or payload.power is None:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="`channel` and `power` are required for RF start.",
+                        )
+                    reports_sent = controller.start_rf(
+                        antenna=payload.antenna,
+                        channel=payload.channel,
+                        power=payload.power,
+                    )
+                    detail = (
+                        "Applied transmitting-pa mode, selected "
+                        f"`{payload.antenna.value}` antenna, and started RF on "
+                        f"channel {payload.channel} at power {payload.power}."
+                    )
+                    operation = "start_rf"
+                elif command == DeviceCommand.STOP_RF:
+                    reports_sent = controller.stop_rf()
+                    detail = "Sent RF stop command."
+                    operation = "stop_rf"
+                else:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Command `{command.value}` is not supported for RXCC.",
+                    )
+            except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+                raise _translate_device_error(exc) from exc
+            return OperationResponse(operation=operation, detail=detail, reports_sent=reports_sent)
+
+        if command in {DeviceCommand.SET_FRONTEND_MODE, DeviceCommand.SET_ANTENNA}:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Command `{command.value}` is only supported for RXCC.",
+            )
 
         controller = (
             request.app.state.tx_controller
-            if device_type == "tx"
+            if device_type == DeviceType.TX
             else request.app.state.rx_controller
         )
         try:
-            reports_sent = controller.stop_rf()
+            if command == DeviceCommand.START_RF:
+                if payload.channel is None or payload.power is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="`channel` and `power` are required for RF start.",
+                    )
+                reports_sent = controller.start_rf(channel=payload.channel, power=payload.power)
+                detail = (
+                    f"Sent CTX HIGH and RF start for `{device_type.value}` "
+                    f"on channel {payload.channel} at power {payload.power}."
+                )
+                operation = "start_rf"
+            else:
+                reports_sent = controller.stop_rf()
+                detail = f"Sent RF stop command for `{device_type.value}`."
+                operation = "stop_rf"
         except (
             HendrixDeviceUnavailableError,
             HendrixDeviceCommunicationError,
         ) as exc:
             raise _translate_device_error(exc) from exc
 
-        return OperationResponse(
-            operation="stop_rf",
-            detail=f"Sent RF stop command for `{device_type}`.",
-            reports_sent=reports_sent,
-        )
+        return OperationResponse(operation=operation, detail=detail, reports_sent=reports_sent)
 
     return app
 
