@@ -25,6 +25,11 @@ from damspy_rpicontrol.start_rf_ch80 import run as run_start_rf_ch80
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "index.html"
 HEALTHCHECK_SCRIPT_PATH = Path(__file__).resolve().parent / "healthcheck.py"
+SUPPORTED_WEB_DEVICES: dict[str, str] = {
+    "rxcc": "RODE RXCC 008C",
+    "tx": "Hendrix TX 008A",
+    "rx": "Hendrix RX 008B",
+}
 
 
 def create_app(controller: RxccController | None = None) -> FastAPI:
@@ -44,7 +49,27 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
-        return HTMLResponse(TEMPLATE_PATH.read_text(encoding="utf-8"))
+        return _render_device_page("rxcc")
+
+    @app.get("/devices/{device_type}", response_class=HTMLResponse)
+    def device_page(device_type: str) -> HTMLResponse:
+        return _render_device_page(device_type)
+
+    def _render_device_page(device_type: str) -> HTMLResponse:
+        if device_type not in SUPPORTED_WEB_DEVICES:
+            raise HTTPException(status_code=404, detail="Unknown device page.")
+
+        nav_links = []
+        for key, label in SUPPORTED_WEB_DEVICES.items():
+            href = "/" if key == "rxcc" else f"/devices/{key}"
+            is_active = " aria-current='page'" if key == device_type else ""
+            nav_links.append(f"<a href='{href}'{is_active}>{label}</a>")
+
+        html = TEMPLATE_PATH.read_text(encoding="utf-8")
+        html = html.replace("__DEVICE_KEY__", device_type)
+        html = html.replace("__DEVICE_NAME__", SUPPORTED_WEB_DEVICES[device_type])
+        html = html.replace("__DEVICE_NAV__", " · ".join(nav_links))
+        return HTMLResponse(html)
 
     @app.post("/api/frontend/mode", response_model=OperationResponse)
     def set_frontend_mode(
