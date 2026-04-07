@@ -7,15 +7,15 @@ from damspy_rpicontrol.models import AntennaPath, FrontendMode, StartRfRequest
 
 class StartRfRequestTest(unittest.TestCase):
     def test_accepts_documented_ranges(self) -> None:
-        request = StartRfRequest(device="rxcc", antenna=AntennaPath.MAIN, channel=79, power=10)
+        request = StartRfRequest(device="rxcc", antenna=AntennaPath.MAIN, channel=80, power=10)
 
         self.assertEqual(request.antenna, AntennaPath.MAIN)
-        self.assertEqual(request.channel, 79)
+        self.assertEqual(request.channel, 80)
         self.assertEqual(request.power, 10)
 
     def test_rejects_channel_above_documented_range(self) -> None:
         with self.assertRaises(ValidationError):
-            StartRfRequest(device="tx", channel=80, power=5)
+            StartRfRequest(device="tx", channel=81, power=5)
 
     def test_rejects_power_above_documented_range(self) -> None:
         with self.assertRaises(ValidationError):
