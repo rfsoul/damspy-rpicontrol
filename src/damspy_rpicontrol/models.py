@@ -66,6 +66,17 @@ class OperationResponse(BaseModel):
     reports_sent: int
 
 
+class BatteryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: str = "read_battery"
+    status: str = "ok"
+    detail: str
+    device: DeviceType
+    battery_mv: int
+    reports_sent: int = 1
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

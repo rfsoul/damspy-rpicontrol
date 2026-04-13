@@ -1,7 +1,17 @@
 import unittest
 
+from fastapi import Request
+
 from damspy_rpicontrol.main import create_app
 from damspy_rpicontrol.rxcc_device import RxccController
+
+
+class StubHendrixController:
+    def __init__(self, battery_mv: int = 3775) -> None:
+        self.battery_mv = battery_mv
+
+    def read_battery_mv(self) -> int:
+        return self.battery_mv
 
 
 class AppStructureTest(unittest.TestCase):
@@ -17,6 +27,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/rf/start", route_paths)
         self.assertIn("/api/rf/stop", route_paths)
         self.assertIn("/api/rf/stop/{device_type}", route_paths)
+        self.assertIn("/api/battery/{device_type}", route_paths)
         self.assertIn("/api/devices/{device_type}/commands/{command}", route_paths)
         self.assertIn("/api/healthcheck", route_paths)
 
@@ -41,6 +52,20 @@ class AppStructureTest(unittest.TestCase):
         self.assertNotIn("Front-end Mode", body)
         self.assertNotIn("Antenna Path", body)
         self.assertNotIn("name=\"antenna\"", body)
+        self.assertIn("Battery Voltage (mV)", body)
+        self.assertIn("Read Battery", body)
+
+    def test_tx_battery_endpoint_returns_battery_mv(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.tx_controller = StubHendrixController(battery_mv=3812)
+        battery_route = next(route for route in app.routes if route.path == "/api/battery/{device_type}")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/battery/tx"})
+
+        response = battery_route.endpoint("tx", request)
+
+        self.assertEqual(response.device.value, "tx")
+        self.assertEqual(response.battery_mv, 3812)
+        self.assertEqual(response.reports_sent, 1)
 
 
 if __name__ == "__main__":

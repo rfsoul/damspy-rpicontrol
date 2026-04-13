@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from damspy_rpicontrol.models import (
     AntennaRequest,
+    BatteryResponse,
     DeviceCommand,
     DeviceCommandRequest,
     DeviceType,
@@ -144,6 +145,31 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             output=output.strip(),
         )
 
+    @app.post("/api/battery/{device_type}", response_model=BatteryResponse)
+    def read_battery(device_type: str, request: Request) -> BatteryResponse:
+        if device_type not in {DeviceType.TX.value, DeviceType.RX.value}:
+            raise HTTPException(status_code=404, detail="Battery read is only supported for Hendrix TX/RX.")
+
+        resolved_device_type = DeviceType(device_type)
+        controller = (
+            request.app.state.tx_controller
+            if resolved_device_type == DeviceType.TX
+            else request.app.state.rx_controller
+        )
+        try:
+            battery_mv = controller.read_battery_mv()
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return BatteryResponse(
+            detail=f"Read battery voltage for `{resolved_device_type.value}`.",
+            device=resolved_device_type,
+            battery_mv=battery_mv,
+        )
+
     @app.post("/api/rf/stop", response_model=OperationResponse)
     def stop_rf(request: Request) -> OperationResponse:
         return _execute_device_command(
@@ -274,7 +300,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
 
 def _translate_device_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, DeviceUnavailableError):
+    if isinstance(exc, (DeviceUnavailableError, HendrixDeviceUnavailableError)):
         return HTTPException(status_code=503, detail=str(exc))
     return HTTPException(status_code=502, detail=str(exc))
 

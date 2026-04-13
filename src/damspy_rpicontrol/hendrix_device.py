@@ -11,6 +11,13 @@ VENDOR_ID = 0x19F7
 TX_PRODUCT_ID = 0x008A
 RX_PRODUCT_ID = 0x008B
 REPORT_ID = 0x0F
+BATTERY_REQUEST_REPORT_ID = 0x01
+BATTERY_RESPONSE_REPORT_ID = 0x02
+BATTERY_COMMAND_ID = 0x61
+BATTERY_STATUS_OK = ord("A")
+BATTERY_REQUEST_LENGTH = 17
+BATTERY_RESPONSE_MIN_LENGTH = 5
+BATTERY_READ_TIMEOUT_MS = 1000
 
 INTER_WRITE_DELAY_S = 0.10
 POST_OPEN_DELAY_S = 0.02
@@ -26,6 +33,9 @@ class DeviceCommunicationError(RuntimeError):
 
 class HidDevice(Protocol):
     def write(self, data: bytes) -> int | None:
+        ...
+
+    def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int]:
         ...
 
     def close(self) -> None:
@@ -63,6 +73,31 @@ def build_rf_stop_report() -> bytes:
     return build_report([0x0D, 0x00])
 
 
+def build_battery_info_request() -> bytes:
+    return bytes([BATTERY_REQUEST_REPORT_ID, BATTERY_COMMAND_ID] + [0x00] * (BATTERY_REQUEST_LENGTH - 2))
+
+
+def parse_battery_info_response(data: bytes | Sequence[int]) -> int:
+    response = bytes(data)
+    if len(response) < BATTERY_RESPONSE_MIN_LENGTH:
+        raise DeviceCommunicationError(
+            f"Battery response was too short: expected at least {BATTERY_RESPONSE_MIN_LENGTH} bytes, got {len(response)}."
+        )
+    if response[0] != BATTERY_RESPONSE_REPORT_ID:
+        raise DeviceCommunicationError(
+            f"Unexpected battery response report ID 0x{response[0]:02X}; expected 0x{BATTERY_RESPONSE_REPORT_ID:02X}."
+        )
+    if response[1] != BATTERY_COMMAND_ID:
+        raise DeviceCommunicationError(
+            f"Unexpected battery response command ID 0x{response[1]:02X}; expected 0x{BATTERY_COMMAND_ID:02X}."
+        )
+    if response[2] != BATTERY_STATUS_OK:
+        raise DeviceCommunicationError(
+            f"Battery response status was 0x{response[2]:02X}; expected 0x{BATTERY_STATUS_OK:02X}."
+        )
+    return response[3] | (response[4] << 8)
+
+
 class HendrixController:
     def __init__(
         self,
@@ -94,6 +129,12 @@ class HendrixController:
 
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
+
+    def read_battery_mv(self) -> int:
+        with self._lock:
+            with self._open_device() as device:
+                self._write_reports(device, [build_battery_info_request()])
+                return self._read_battery_mv(device)
 
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
@@ -143,3 +184,13 @@ class HendrixController:
             time.sleep(INTER_WRITE_DELAY_S)
 
         return reports_sent
+
+    def _read_battery_mv(self, device: HidDevice) -> int:
+        try:
+            response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
+        except Exception as exc:
+            raise DeviceCommunicationError(
+                f"Failed while reading Hendrix battery response ({exc})."
+            ) from exc
+
+        return parse_battery_info_response(response)
