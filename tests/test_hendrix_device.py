@@ -4,6 +4,7 @@ from damspy_rpicontrol.hendrix_device import (
     DeviceCommunicationError,
     HendrixController,
     build_battery_info_request,
+    build_ctx_low_report,
     build_ctx_high_report,
     build_rf_start_report,
     build_rf_stop_report,
@@ -45,6 +46,9 @@ class HendrixDeviceTest(unittest.TestCase):
     def test_ctx_high_report_matches_reference_shape(self) -> None:
         self.assertEqual(build_ctx_high_report(), bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]))
 
+    def test_ctx_low_report_matches_reference_shape(self) -> None:
+        self.assertEqual(build_ctx_low_report(), bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00]))
+
     def test_rf_start_report_matches_reference_shape(self) -> None:
         self.assertEqual(build_rf_start_report(10, 5), bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]))
 
@@ -76,6 +80,16 @@ class HendrixDeviceTest(unittest.TestCase):
                 bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
             ],
         )
+        self.assertTrue(factory.devices[0].closed)
+
+    def test_set_ctx_low_sends_single_low_report(self) -> None:
+        factory = DeviceFactory()
+        controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
+
+        reports_sent = controller.set_ctx(high=False)
+
+        self.assertEqual(reports_sent, 1)
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00])])
         self.assertTrue(factory.devices[0].closed)
 
     def test_read_battery_writes_request_then_parses_response(self) -> None:

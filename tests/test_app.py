@@ -9,9 +9,14 @@ from damspy_rpicontrol.rxcc_device import RxccController
 class StubHendrixController:
     def __init__(self, battery_mv: int = 3775) -> None:
         self.battery_mv = battery_mv
+        self.ctx_high: bool | None = None
 
     def read_battery_mv(self) -> int:
         return self.battery_mv
+
+    def set_ctx(self, high: bool) -> int:
+        self.ctx_high = high
+        return 1
 
 
 class AppStructureTest(unittest.TestCase):
@@ -28,6 +33,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/rf/stop", route_paths)
         self.assertIn("/api/rf/stop/{device_type}", route_paths)
         self.assertIn("/api/battery/{device_type}", route_paths)
+        self.assertIn("/api/ctx/{device_type}/{level}", route_paths)
         self.assertIn("/api/devices/{device_type}/commands/{command}", route_paths)
         self.assertIn("/api/healthcheck", route_paths)
 
@@ -54,6 +60,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertNotIn("name=\"antenna\"", body)
         self.assertIn("Battery Voltage (mV)", body)
         self.assertIn("Read Battery", body)
+        self.assertIn("CTX LOW", body)
+        self.assertIn("CTX HIGH", body)
 
     def test_tx_battery_endpoint_returns_battery_mv(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -66,6 +74,19 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.device.value, "tx")
         self.assertEqual(response.battery_mv, 3812)
         self.assertEqual(response.reports_sent, 1)
+
+    def test_tx_ctx_endpoint_sends_requested_level(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController()
+        app.state.tx_controller = stub_controller
+        ctx_route = next(route for route in app.routes if route.path == "/api/ctx/{device_type}/{level}")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/ctx/tx/low"})
+
+        response = ctx_route.endpoint("tx", "low", request)
+
+        self.assertEqual(response.operation, "set_ctx")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(stub_controller.ctx_high, False)
 
 
 if __name__ == "__main__":

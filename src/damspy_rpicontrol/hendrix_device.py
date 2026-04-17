@@ -65,6 +65,10 @@ def build_ctx_high_report() -> bytes:
     return build_report([0x14, 0x00, 0x02, 0x00, 0x01])
 
 
+def build_ctx_low_report() -> bytes:
+    return build_report([0x14, 0x00, 0x02, 0x00, 0x00])
+
+
 def build_rf_start_report(channel: int, power: int) -> bytes:
     return build_report([0x03, 0x00, channel, 0x00, power])
 
@@ -126,6 +130,10 @@ class HendrixController:
             build_rf_start_report(channel=channel, power=power),
         ]
         return self._execute(reports)
+
+    def set_ctx(self, high: bool) -> int:
+        report = build_ctx_high_report() if high else build_ctx_low_report()
+        return self._execute([report])
 
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])

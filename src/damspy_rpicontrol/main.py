@@ -170,6 +170,33 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             battery_mv=battery_mv,
         )
 
+    @app.post("/api/ctx/{device_type}/{level}", response_model=OperationResponse)
+    def set_ctx_level(device_type: str, level: str, request: Request) -> OperationResponse:
+        if device_type not in {DeviceType.TX.value, DeviceType.RX.value}:
+            raise HTTPException(status_code=404, detail="CTX control is only supported for Hendrix TX/RX.")
+        if level not in {"low", "high"}:
+            raise HTTPException(status_code=404, detail="Unknown CTX level.")
+
+        resolved_device_type = DeviceType(device_type)
+        controller = (
+            request.app.state.tx_controller
+            if resolved_device_type == DeviceType.TX
+            else request.app.state.rx_controller
+        )
+        try:
+            reports_sent = controller.set_ctx(high=level == "high")
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+
+        return OperationResponse(
+            operation="set_ctx",
+            detail=f"Sent CTX {level.upper()} for `{resolved_device_type.value}`.",
+            reports_sent=reports_sent,
+        )
+
     @app.post("/api/rf/stop", response_model=OperationResponse)
     def stop_rf(request: Request) -> OperationResponse:
         return _execute_device_command(
