@@ -63,6 +63,18 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("CTX LOW", body)
         self.assertIn("CTX HIGH", body)
 
+    def test_rx_page_uses_rx_specific_template(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        device_route = next(route for route in app.routes if route.path == "/devices/{device_type}")
+        response = device_route.endpoint("rx")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.body.decode("utf-8")
+        self.assertIn("<code>rx</code>", body)
+        self.assertIn("CTX LOW", body)
+        self.assertIn("CTX HIGH", body)
+        self.assertNotIn("Battery Voltage (mV)", body)
+
     def test_tx_battery_endpoint_returns_battery_mv(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
         app.state.tx_controller = StubHendrixController(battery_mv=3812)
@@ -87,6 +99,19 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
         self.assertEqual(stub_controller.ctx_high, False)
+
+    def test_rx_ctx_endpoint_sends_requested_level(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController()
+        app.state.rx_controller = stub_controller
+        ctx_route = next(route for route in app.routes if route.path == "/api/ctx/{device_type}/{level}")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/ctx/rx/high"})
+
+        response = ctx_route.endpoint("rx", "high", request)
+
+        self.assertEqual(response.operation, "set_ctx")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(stub_controller.ctx_high, True)
 
 
 if __name__ == "__main__":
