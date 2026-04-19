@@ -11,6 +11,7 @@ VENDOR_ID = 0x19F7
 TX_PRODUCT_ID = 0x008A
 RX_PRODUCT_ID = 0x008B
 REPORT_ID = 0x0F
+REPORT_SIZE = 64
 BATTERY_REQUEST_REPORT_ID = 0x01
 BATTERY_RESPONSE_REPORT_ID = 0x02
 BATTERY_COMMAND_ID = 0x61
@@ -58,7 +59,10 @@ def detect_hid_backend(product_id: int) -> tuple[DeviceFactory | None, str]:
 
 
 def build_report(payload: Sequence[int]) -> bytes:
-    return bytes([REPORT_ID] + list(payload))
+    report = bytearray(REPORT_SIZE)
+    report[0] = REPORT_ID
+    report[1 : 1 + len(payload)] = bytes(payload)
+    return bytes(report)
 
 
 def build_ctx_high_report() -> bytes:
