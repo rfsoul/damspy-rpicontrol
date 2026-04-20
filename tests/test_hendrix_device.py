@@ -49,16 +49,16 @@ class DeviceFactory:
 
 class HendrixDeviceTest(unittest.TestCase):
     def test_ctx_high_report_matches_reference_shape(self) -> None:
-        self.assertEqual(build_ctx_high_report(), padded_report(0x14, 0x00, 0x02, 0x00, 0x01))
+        self.assertEqual(build_ctx_high_report(), bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]))
 
     def test_ctx_low_report_matches_reference_shape(self) -> None:
-        self.assertEqual(build_ctx_low_report(), padded_report(0x14, 0x00, 0x02, 0x00, 0x00))
+        self.assertEqual(build_ctx_low_report(), bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00]))
 
     def test_rf_start_report_matches_reference_shape(self) -> None:
-        self.assertEqual(build_rf_start_report(10, 5), padded_report(0x03, 0x00, 10, 0x00, 5))
+        self.assertEqual(build_rf_start_report(10, 5), bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]))
 
     def test_rf_stop_report_matches_reference_shape(self) -> None:
-        self.assertEqual(build_rf_stop_report(), padded_report(0x0D, 0x00))
+        self.assertEqual(build_rf_stop_report(), bytes([0x0F, 0x0D, 0x00]))
 
     def test_battery_request_matches_reference_shape(self) -> None:
         self.assertEqual(
@@ -81,8 +81,8 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(
             factory.devices[0].writes,
             [
-                padded_report(0x14, 0x00, 0x02, 0x00, 0x01),
-                padded_report(0x03, 0x00, 10, 0x00, 5),
+                bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]),
+                bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
             ],
         )
         self.assertTrue(factory.devices[0].closed)
@@ -94,7 +94,23 @@ class HendrixDeviceTest(unittest.TestCase):
         reports_sent = controller.set_ctx(high=False)
 
         self.assertEqual(reports_sent, 1)
-        self.assertEqual(factory.devices[0].writes, [padded_report(0x14, 0x00, 0x02, 0x00, 0x00)])
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00])])
+        self.assertTrue(factory.devices[0].closed)
+
+    def test_rx_start_rf_pads_writes_to_full_report_size(self) -> None:
+        factory = DeviceFactory()
+        controller = HendrixController(product_id=0x008B, device_factory=factory, backend_name="test")
+
+        reports_sent = controller.start_rf(channel=10, power=5)
+
+        self.assertEqual(reports_sent, 2)
+        self.assertEqual(
+            factory.devices[0].writes,
+            [
+                padded_report(0x14, 0x00, 0x02, 0x00, 0x01),
+                padded_report(0x03, 0x00, 10, 0x00, 5),
+            ],
+        )
         self.assertTrue(factory.devices[0].closed)
 
     def test_read_battery_writes_request_then_parses_response(self) -> None:

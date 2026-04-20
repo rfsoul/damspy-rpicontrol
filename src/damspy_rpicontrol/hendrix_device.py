@@ -33,7 +33,7 @@ class DeviceCommunicationError(RuntimeError):
 
 
 class HidDevice(Protocol):
-    def write(self, data: bytes) -> int | None:
+    def write(self, data: bytes | Sequence[int]) -> int | None:
         ...
 
     def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int]:
@@ -59,10 +59,7 @@ def detect_hid_backend(product_id: int) -> tuple[DeviceFactory | None, str]:
 
 
 def build_report(payload: Sequence[int]) -> bytes:
-    report = bytearray(REPORT_SIZE)
-    report[0] = REPORT_ID
-    report[1 : 1 + len(payload)] = bytes(payload)
-    return bytes(report)
+    return bytes([REPORT_ID] + list(payload))
 
 
 def build_ctx_high_report() -> bytes:
@@ -162,6 +159,9 @@ class HendrixController:
 
         try:
             device = self._device_factory()
+            set_nonblocking = getattr(device, "set_nonblocking", None)
+            if callable(set_nonblocking):
+                set_nonblocking(True)
             time.sleep(POST_OPEN_DELAY_S)
         except Exception as exc:
             raise DeviceCommunicationError(
@@ -180,22 +180,33 @@ class HendrixController:
         reports_sent = 0
 
         for report in reports:
+            report_to_write = self._format_output_report(report)
             try:
-                result = device.write(report)
+                result = device.write(report_to_write)
             except Exception as exc:
                 raise DeviceCommunicationError(
-                    f"Failed while writing HID report {list(report)} ({exc})."
+                    f"Failed while writing HID report {list(report_to_write)} ({exc})."
                 ) from exc
 
             if isinstance(result, int) and result < 0:
                 raise DeviceCommunicationError(
-                    f"HID write failed for report {list(report)}."
+                    f"HID write failed for report {list(report_to_write)}."
                 )
 
             reports_sent += 1
             time.sleep(INTER_WRITE_DELAY_S)
 
         return reports_sent
+
+    def _format_output_report(self, report: bytes) -> bytes | list[int]:
+        if self.product_id != RX_PRODUCT_ID or not report or report[0] != REPORT_ID:
+            return report
+
+        padded_report = [0] * REPORT_SIZE
+        padded_report[0] = REPORT_ID
+        payload = list(report[1:REPORT_SIZE])
+        padded_report[1 : 1 + len(payload)] = payload
+        return padded_report
 
     def _read_battery_mv(self, device: HidDevice) -> int:
         try:
