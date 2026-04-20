@@ -33,7 +33,7 @@ class DeviceCommunicationError(RuntimeError):
 
 
 class HidDevice(Protocol):
-    def write(self, data: bytes | Sequence[int]) -> int | None:
+    def write(self, data: bytes) -> int | None:
         ...
 
     def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int]:
@@ -198,15 +198,15 @@ class HendrixController:
 
         return reports_sent
 
-    def _format_output_report(self, report: bytes) -> bytes | list[int]:
+    def _format_output_report(self, report: bytes) -> bytes:
         if self.product_id != RX_PRODUCT_ID or not report or report[0] != REPORT_ID:
             return report
 
-        padded_report = [0] * REPORT_SIZE
+        padded_report = bytearray(REPORT_SIZE)
         padded_report[0] = REPORT_ID
-        payload = list(report[1:REPORT_SIZE])
+        payload = report[1:REPORT_SIZE]
         padded_report[1 : 1 + len(payload)] = payload
-        return padded_report
+        return bytes(padded_report)
 
     def _read_battery_mv(self, device: HidDevice) -> int:
         try:
