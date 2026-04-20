@@ -24,7 +24,7 @@ class StubHendrixController:
     def set_ctx(self, high: bool) -> int:
         self.ctx_high = high
         self.last_written_reports = [
-            bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01 if high else 0x00])
+            bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01 if high else 0x00])
         ]
         self.last_response = None
         return 1
@@ -114,7 +114,7 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
-        self.assertEqual(response.command_sent, ["15 20 0 2 0 0"])
+        self.assertEqual(response.command_sent, ["15 14 0 2 0 0"])
         self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.ctx_high, False)
 
@@ -129,7 +129,7 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
-        self.assertEqual(response.command_sent, ["15 20 0 2 0 1"])
+        self.assertEqual(response.command_sent, ["15 14 0 2 0 1"])
         self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.ctx_high, True)
 

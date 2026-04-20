@@ -44,10 +44,10 @@ class DeviceFactory:
 
 class HendrixDeviceTest(unittest.TestCase):
     def test_ctx_high_report_matches_reference_shape(self) -> None:
-        self.assertEqual(build_ctx_high_report(), bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]))
+        self.assertEqual(build_ctx_high_report(), bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01]))
 
     def test_ctx_low_report_matches_reference_shape(self) -> None:
-        self.assertEqual(build_ctx_low_report(), bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00]))
+        self.assertEqual(build_ctx_low_report(), bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x00]))
 
     def test_rf_start_report_matches_reference_shape(self) -> None:
         self.assertEqual(build_rf_start_report(10, 5), bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]))
@@ -88,7 +88,7 @@ class HendrixDeviceTest(unittest.TestCase):
         reports_sent = controller.set_ctx(high=False)
 
         self.assertEqual(reports_sent, 1)
-        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00])])
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x00])])
         self.assertTrue(factory.devices[0].closed)
 
     def test_rx_start_rf_sends_short_reports(self) -> None:

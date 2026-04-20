@@ -64,11 +64,11 @@ def build_report(payload: Sequence[int]) -> bytes:
 
 
 def build_ctx_high_report() -> bytes:
-    return build_report([0x14, 0x00, 0x02, 0x00, 0x01])
+    return build_report([0x0E, 0x00, 0x02, 0x00, 0x01])
 
 
 def build_ctx_low_report() -> bytes:
-    return build_report([0x14, 0x00, 0x02, 0x00, 0x00])
+    return build_report([0x0E, 0x00, 0x02, 0x00, 0x00])
 
 
 def build_rf_start_report(channel: int, power: int) -> bytes:
