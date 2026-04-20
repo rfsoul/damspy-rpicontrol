@@ -11,7 +11,6 @@ VENDOR_ID = 0x19F7
 TX_PRODUCT_ID = 0x008A
 RX_PRODUCT_ID = 0x008B
 REPORT_ID = 0x0F
-REPORT_SIZE = 64
 BATTERY_REQUEST_REPORT_ID = 0x01
 BATTERY_RESPONSE_REPORT_ID = 0x02
 BATTERY_COMMAND_ID = 0x61
@@ -191,34 +190,23 @@ class HendrixController:
         reports_sent = 0
 
         for report in reports:
-            report_to_write = self._format_output_report(report)
             try:
-                result = device.write(report_to_write)
+                result = device.write(report)
             except Exception as exc:
                 raise DeviceCommunicationError(
-                    f"Failed while writing HID report {list(report_to_write)} ({exc})."
+                    f"Failed while writing HID report {list(report)} ({exc})."
                 ) from exc
 
             if isinstance(result, int) and result < 0:
                 raise DeviceCommunicationError(
-                    f"HID write failed for report {list(report_to_write)}."
+                    f"HID write failed for report {list(report)}."
                 )
 
-            self._last_written_reports.append(bytes(report_to_write))
+            self._last_written_reports.append(bytes(report))
             reports_sent += 1
             time.sleep(INTER_WRITE_DELAY_S)
 
         return reports_sent
-
-    def _format_output_report(self, report: bytes) -> bytes:
-        if self.product_id != RX_PRODUCT_ID or not report or report[0] != REPORT_ID:
-            return report
-
-        padded_report = bytearray(REPORT_SIZE)
-        padded_report[0] = REPORT_ID
-        payload = report[1:REPORT_SIZE]
-        padded_report[1 : 1 + len(payload)] = payload
-        return bytes(padded_report)
 
     def _read_battery_mv(self, device: HidDevice) -> int:
         battery_mv, _ = self._read_battery_info(device)

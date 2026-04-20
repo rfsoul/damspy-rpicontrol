@@ -3,7 +3,6 @@ import unittest
 from damspy_rpicontrol.hendrix_device import (
     DeviceCommunicationError,
     HendrixController,
-    REPORT_SIZE,
     build_battery_info_request,
     build_ctx_low_report,
     build_ctx_high_report,
@@ -11,10 +10,6 @@ from damspy_rpicontrol.hendrix_device import (
     build_rf_stop_report,
     parse_battery_info_response,
 )
-
-
-def padded_report(*payload: int) -> bytes:
-    return bytes([0x0F, *payload] + [0x00] * (REPORT_SIZE - len(payload) - 1))
 
 
 class RecordingDevice:
@@ -97,7 +92,7 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x00])])
         self.assertTrue(factory.devices[0].closed)
 
-    def test_rx_start_rf_pads_writes_to_full_report_size(self) -> None:
+    def test_rx_start_rf_sends_short_reports(self) -> None:
         factory = DeviceFactory()
         controller = HendrixController(product_id=0x008B, device_factory=factory, backend_name="test")
 
@@ -107,8 +102,8 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(
             factory.devices[0].writes,
             [
-                padded_report(0x14, 0x00, 0x02, 0x00, 0x01),
-                padded_report(0x03, 0x00, 10, 0x00, 5),
+                bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]),
+                bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
             ],
         )
         self.assertTrue(factory.devices[0].closed)
