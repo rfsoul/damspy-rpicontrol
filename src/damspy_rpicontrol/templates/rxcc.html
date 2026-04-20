@@ -95,12 +95,12 @@
       const lines = [title];
       if (payload.detail) lines.push(`Detail: ${payload.detail}`);
       if (Array.isArray(payload.command_sent) && payload.command_sent.length) {
-        lines.push("Command sent:");
+        lines.push("Bytes written:");
         lines.push(...payload.command_sent);
       }
       if (Object.prototype.hasOwnProperty.call(payload, "device_response")) {
-        lines.push("Response:");
-        lines.push(payload.device_response || "(none)");
+        lines.push("Bytes read:");
+        lines.push(payload.device_response || "(no read attempted)");
       }
       if ("battery_mv" in payload) lines.push(`Battery mV: ${payload.battery_mv}`);
       if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));

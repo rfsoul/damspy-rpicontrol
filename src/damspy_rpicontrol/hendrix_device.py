@@ -120,6 +120,8 @@ class HendrixController:
             self.backend_name = backend_name or "custom"
 
         self._lock = threading.Lock()
+        self._last_written_reports: list[bytes] = []
+        self._last_response: bytes | None = None
 
     @property
     def is_available(self) -> bool:
@@ -145,14 +147,19 @@ class HendrixController:
 
     def read_battery_info(self) -> tuple[int, bytes]:
         with self._lock:
+            self._reset_io_trace()
             with self._open_device() as device:
                 self._write_reports(device, [build_battery_info_request()])
                 return self._read_battery_info(device)
 
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
+            self._reset_io_trace()
             with self._open_device() as device:
                 return self._write_reports(device, reports)
+
+    def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
+        return list(self._last_written_reports), self._last_response
 
     @contextmanager
     def _open_device(self) -> Iterator[HidDevice]:
@@ -197,6 +204,7 @@ class HendrixController:
                     f"HID write failed for report {list(report_to_write)}."
                 )
 
+            self._last_written_reports.append(bytes(report_to_write))
             reports_sent += 1
             time.sleep(INTER_WRITE_DELAY_S)
 
@@ -225,4 +233,9 @@ class HendrixController:
             ) from exc
 
         response_bytes = bytes(response)
+        self._last_response = response_bytes
         return parse_battery_info_response(response_bytes), response_bytes
+
+    def _reset_io_trace(self) -> None:
+        self._last_written_reports = []
+        self._last_response = None

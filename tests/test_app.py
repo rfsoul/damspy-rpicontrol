@@ -10,16 +10,27 @@ class StubHendrixController:
     def __init__(self, battery_mv: int = 3775) -> None:
         self.battery_mv = battery_mv
         self.ctx_high: bool | None = None
+        self.last_written_reports: list[bytes] = []
+        self.last_response: bytes | None = None
 
     def read_battery_mv(self) -> int:
         return self.battery_mv
 
     def read_battery_info(self) -> tuple[int, bytes]:
-        return self.battery_mv, bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E])
+        self.last_written_reports = [bytes([0x01, 0x61] + [0x00] * 15)]
+        self.last_response = bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E])
+        return self.battery_mv, self.last_response
 
     def set_ctx(self, high: bool) -> int:
         self.ctx_high = high
+        self.last_written_reports = [
+            bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01 if high else 0x00])
+        ]
+        self.last_response = None
         return 1
+
+    def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
+        return list(self.last_written_reports), self.last_response
 
 
 class AppStructureTest(unittest.TestCase):
@@ -104,6 +115,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
         self.assertEqual(response.command_sent, ["15 20 0 2 0 0"])
+        self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.ctx_high, False)
 
     def test_rx_ctx_endpoint_sends_requested_level(self) -> None:
@@ -118,6 +130,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
         self.assertEqual(response.command_sent, ["15 20 0 2 0 1"])
+        self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.ctx_high, True)
 
 

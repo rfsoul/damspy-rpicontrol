@@ -113,6 +113,8 @@ class RxccController:
             self.backend_name = backend_name or "custom"
 
         self._lock = threading.Lock()
+        self._last_written_reports: list[bytes] = []
+        self._last_response: bytes | None = None
 
     @property
     def is_available(self) -> bool:
@@ -145,8 +147,12 @@ class RxccController:
 
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
+            self._reset_io_trace()
             with self._open_device() as device:
                 return self._write_reports(device, reports)
+
+    def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
+        return list(self._last_written_reports), self._last_response
 
     @contextmanager
     def _open_device(self) -> Iterator[HidDevice]:
@@ -189,7 +195,12 @@ class RxccController:
                     f"HID write failed for report {list(report)}."
                 )
 
+            self._last_written_reports.append(bytes(report))
             reports_sent += 1
             time.sleep(INTER_WRITE_DELAY_S)
 
         return reports_sent
+
+    def _reset_io_trace(self) -> None:
+        self._last_written_reports = []
+        self._last_response = None
