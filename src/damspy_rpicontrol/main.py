@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import sys
+from typing import Sequence
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -13,6 +14,7 @@ from damspy_rpicontrol.models import (
     DeviceCommand,
     DeviceCommandRequest,
     DeviceType,
+    FrontendMode,
     FrontendModeRequest,
     HealthResponse,
     HealthcheckResponse,
@@ -25,11 +27,20 @@ from damspy_rpicontrol.hendrix_device import (
     HendrixController,
     RX_PRODUCT_ID,
     TX_PRODUCT_ID,
+    build_battery_info_request,
+    build_ctx_high_report as build_hendrix_ctx_high_report,
+    build_ctx_low_report as build_hendrix_ctx_low_report,
+    build_rf_start_report as build_hendrix_rf_start_report,
+    build_rf_stop_report as build_hendrix_rf_stop_report,
 )
 from damspy_rpicontrol.rxcc_device import (
     DeviceCommunicationError,
     DeviceUnavailableError,
     RxccController,
+    antenna_reports,
+    build_rf_start_report as build_rxcc_rf_start_report,
+    build_rf_stop_report as build_rxcc_rf_stop_report,
+    frontend_mode_reports,
 )
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -44,6 +55,49 @@ DEVICE_TEMPLATE_FILES: dict[str, str] = {
     "tx": "tx.html",
     "rx": "rx.html",
 }
+
+
+def _format_report(report: Sequence[int]) -> str:
+    return " ".join(str(int(byte)) for byte in report)
+
+
+def _hendrix_command_sent(
+    command: DeviceCommand | None = None,
+    payload: DeviceCommandRequest | None = None,
+    *,
+    ctx_level: str | None = None,
+) -> list[str]:
+    if command == DeviceCommand.START_RF and payload is not None:
+        return [
+            _format_report(build_hendrix_ctx_high_report()),
+            _format_report(build_hendrix_rf_start_report(channel=payload.channel or 0, power=payload.power or 0)),
+        ]
+    if command == DeviceCommand.STOP_RF:
+        return [_format_report(build_hendrix_rf_stop_report())]
+    if ctx_level == "high":
+        return [_format_report(build_hendrix_ctx_high_report())]
+    if ctx_level == "low":
+        return [_format_report(build_hendrix_ctx_low_report())]
+    return []
+
+
+def _rxcc_command_sent(command: DeviceCommand, payload: DeviceCommandRequest) -> list[str]:
+    if command == DeviceCommand.SET_FRONTEND_MODE and payload.mode is not None:
+        return [_format_report(report) for report in frontend_mode_reports(payload.mode)]
+    if command == DeviceCommand.SET_ANTENNA and payload.antenna is not None:
+        return [
+            *[_format_report(report) for report in frontend_mode_reports(FrontendMode.TRANSMITTING_PA)],
+            *[_format_report(report) for report in antenna_reports(payload.antenna)],
+        ]
+    if command == DeviceCommand.START_RF and payload.antenna is not None and payload.channel is not None and payload.power is not None:
+        return [
+            *[_format_report(report) for report in frontend_mode_reports(FrontendMode.TRANSMITTING_PA)],
+            *[_format_report(report) for report in antenna_reports(payload.antenna)],
+            _format_report(build_rxcc_rf_start_report(channel=payload.channel, power=payload.power)),
+        ]
+    if command == DeviceCommand.STOP_RF:
+        return [_format_report(build_rxcc_rf_stop_report())]
+    return []
 
 
 def create_app(controller: RxccController | None = None) -> FastAPI:
@@ -157,7 +211,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             else request.app.state.rx_controller
         )
         try:
-            battery_mv = controller.read_battery_mv()
+            battery_mv, response_bytes = controller.read_battery_info()
         except (
             HendrixDeviceUnavailableError,
             HendrixDeviceCommunicationError,
@@ -168,6 +222,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             detail=f"Read battery voltage for `{resolved_device_type.value}`.",
             device=resolved_device_type,
             battery_mv=battery_mv,
+            command_sent=[_format_report(build_battery_info_request())],
+            device_response=_format_report(response_bytes),
         )
 
     @app.post("/api/ctx/{device_type}/{level}", response_model=OperationResponse)
@@ -195,6 +251,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             operation="set_ctx",
             detail=f"Sent CTX {level.upper()} for `{resolved_device_type.value}`.",
             reports_sent=reports_sent,
+            command_sent=_hendrix_command_sent(ctx_level=level),
         )
 
     @app.post("/api/rf/stop", response_model=OperationResponse)
@@ -285,7 +342,12 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                     )
             except (DeviceUnavailableError, DeviceCommunicationError) as exc:
                 raise _translate_device_error(exc) from exc
-            return OperationResponse(operation=operation, detail=detail, reports_sent=reports_sent)
+            return OperationResponse(
+                operation=operation,
+                detail=detail,
+                reports_sent=reports_sent,
+                command_sent=_rxcc_command_sent(command, payload),
+            )
 
         if command in {DeviceCommand.SET_FRONTEND_MODE, DeviceCommand.SET_ANTENNA}:
             raise HTTPException(
@@ -321,7 +383,12 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         ) as exc:
             raise _translate_device_error(exc) from exc
 
-        return OperationResponse(operation=operation, detail=detail, reports_sent=reports_sent)
+        return OperationResponse(
+            operation=operation,
+            detail=detail,
+            reports_sent=reports_sent,
+            command_sent=_hendrix_command_sent(command, payload),
+        )
 
     return app
 

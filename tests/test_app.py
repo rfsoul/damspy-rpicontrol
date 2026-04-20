@@ -14,6 +14,9 @@ class StubHendrixController:
     def read_battery_mv(self) -> int:
         return self.battery_mv
 
+    def read_battery_info(self) -> tuple[int, bytes]:
+        return self.battery_mv, bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E])
+
     def set_ctx(self, high: bool) -> int:
         self.ctx_high = high
         return 1
@@ -86,6 +89,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.device.value, "tx")
         self.assertEqual(response.battery_mv, 3812)
         self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["1 97 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
+        self.assertEqual(response.device_response, "2 97 65 191 14")
 
     def test_tx_ctx_endpoint_sends_requested_level(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -98,6 +103,7 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["15 20 0 2 0 0"])
         self.assertEqual(stub_controller.ctx_high, False)
 
     def test_rx_ctx_endpoint_sends_requested_level(self) -> None:
@@ -111,6 +117,7 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.operation, "set_ctx")
         self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["15 20 0 2 0 1"])
         self.assertEqual(stub_controller.ctx_high, True)
 
 

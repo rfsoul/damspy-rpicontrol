@@ -91,7 +91,21 @@
     const output = document.getElementById("output");
     const healthLed = document.getElementById("health-led");
     function setHealthLed(status) { healthLed.classList.remove("pass", "fail"); if (status === "pass") healthLed.classList.add("pass"); else if (status === "fail") healthLed.classList.add("fail"); }
-    function writeResult(title, payload) { output.textContent = `${title}\n${JSON.stringify(payload, null, 2)}`; }
+    function writeResult(title, payload) {
+      const lines = [title];
+      if (payload.detail) lines.push(`Detail: ${payload.detail}`);
+      if (Array.isArray(payload.command_sent) && payload.command_sent.length) {
+        lines.push("Command sent:");
+        lines.push(...payload.command_sent);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "device_response")) {
+        lines.push("Response:");
+        lines.push(payload.device_response || "(none)");
+      }
+      if ("battery_mv" in payload) lines.push(`Battery mV: ${payload.battery_mv}`);
+      if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));
+      output.textContent = lines.join("\n");
+    }
     async function requestJson(endpoint, payload, method = "POST") {
       const response = await fetch(endpoint, { method, headers: payload ? { "Content-Type": "application/json" } : {}, body: payload ? JSON.stringify(payload) : undefined });
       let body; try { body = await response.json(); } catch (error) { body = { detail: "Response was not valid JSON." }; }

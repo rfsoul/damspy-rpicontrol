@@ -140,10 +140,14 @@ class HendrixController:
         return self._execute([build_rf_stop_report()])
 
     def read_battery_mv(self) -> int:
+        battery_mv, _ = self.read_battery_info()
+        return battery_mv
+
+    def read_battery_info(self) -> tuple[int, bytes]:
         with self._lock:
             with self._open_device() as device:
                 self._write_reports(device, [build_battery_info_request()])
-                return self._read_battery_mv(device)
+                return self._read_battery_info(device)
 
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
@@ -209,6 +213,10 @@ class HendrixController:
         return bytes(padded_report)
 
     def _read_battery_mv(self, device: HidDevice) -> int:
+        battery_mv, _ = self._read_battery_info(device)
+        return battery_mv
+
+    def _read_battery_info(self, device: HidDevice) -> tuple[int, bytes]:
         try:
             response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
         except Exception as exc:
@@ -216,4 +224,5 @@ class HendrixController:
                 f"Failed while reading Hendrix battery response ({exc})."
             ) from exc
 
-        return parse_battery_info_response(response)
+        response_bytes = bytes(response)
+        return parse_battery_info_response(response_bytes), response_bytes

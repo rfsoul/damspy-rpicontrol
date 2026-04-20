@@ -64,6 +64,8 @@ class OperationResponse(BaseModel):
     status: str = "ok"
     detail: str
     reports_sent: int
+    command_sent: list[str] = Field(default_factory=list)
+    device_response: str | None = None
 
 
 class BatteryResponse(BaseModel):
@@ -75,6 +77,8 @@ class BatteryResponse(BaseModel):
     device: DeviceType
     battery_mv: int
     reports_sent: int = 1
+    command_sent: list[str] = Field(default_factory=list)
+    device_response: str | None = None
 
 
 class HealthResponse(BaseModel):
