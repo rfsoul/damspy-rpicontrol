@@ -66,6 +66,7 @@ class OperationResponse(BaseModel):
     reports_sent: int
     command_sent: list[str] = Field(default_factory=list)
     device_response: str | None = None
+    read_attempted: bool = False
 
 
 class BatteryResponse(BaseModel):
@@ -79,6 +80,7 @@ class BatteryResponse(BaseModel):
     reports_sent: int = 1
     command_sent: list[str] = Field(default_factory=list)
     device_response: str | None = None
+    read_attempted: bool = False
 
 
 class HealthResponse(BaseModel):

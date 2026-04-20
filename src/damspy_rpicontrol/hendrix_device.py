@@ -18,6 +18,8 @@ BATTERY_STATUS_OK = ord("A")
 BATTERY_REQUEST_LENGTH = 17
 BATTERY_RESPONSE_MIN_LENGTH = 5
 BATTERY_READ_TIMEOUT_MS = 1000
+COMMAND_RESPONSE_LENGTH = 64
+COMMAND_READ_TIMEOUT_MS = 200
 
 INTER_WRITE_DELAY_S = 0.10
 POST_OPEN_DELAY_S = 0.02
@@ -127,11 +129,7 @@ class HendrixController:
         return self._device_factory is not None
 
     def start_rf(self, channel: int, power: int) -> int:
-        reports = [
-            build_ctx_high_report(),
-            build_rf_start_report(channel=channel, power=power),
-        ]
-        return self._execute(reports)
+        return self._execute([build_rf_start_report(channel=channel, power=power)])
 
     def set_ctx(self, high: bool) -> int:
         report = build_ctx_high_report() if high else build_ctx_low_report()
@@ -155,7 +153,9 @@ class HendrixController:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
-                return self._write_reports(device, reports)
+                reports_sent = self._write_reports(device, reports)
+                self._read_command_response(device)
+                return reports_sent
 
     def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
         return list(self._last_written_reports), self._last_response
@@ -211,6 +211,20 @@ class HendrixController:
     def _read_battery_mv(self, device: HidDevice) -> int:
         battery_mv, _ = self._read_battery_info(device)
         return battery_mv
+
+    def _read_command_response(self, device: HidDevice) -> bytes | None:
+        try:
+            response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
+        except Exception:
+            return None
+
+        response_bytes = bytes(response)
+        if not response_bytes:
+            self._last_response = None
+            return None
+
+        self._last_response = response_bytes
+        return response_bytes
 
     def _read_battery_info(self, device: HidDevice) -> tuple[int, bytes]:
         try:

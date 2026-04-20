@@ -186,6 +186,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             battery_mv=battery_mv,
             command_sent=command_sent,
             device_response=device_response,
+            read_attempted=True,
         )
 
     @app.post("/api/ctx/{device_type}/{level}", response_model=OperationResponse)
@@ -216,6 +217,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             reports_sent=reports_sent,
             command_sent=command_sent,
             device_response=device_response,
+            read_attempted=True,
         )
 
     @app.post("/api/rf/stop", response_model=OperationResponse)
@@ -335,8 +337,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                     )
                 reports_sent = controller.start_rf(channel=payload.channel, power=payload.power)
                 detail = (
-                    f"Sent CTX HIGH and RF start for `{device_type.value}` "
-                    f"on channel {payload.channel} at power {payload.power}."
+                    f"Sent RF start for `{device_type.value}` on channel "
+                    f"{payload.channel} at power {payload.power}."
                 )
                 operation = "start_rf"
             else:
@@ -356,6 +358,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             reports_sent=reports_sent,
             command_sent=command_sent,
             device_response=device_response,
+            read_attempted=True,
         )
 
     return app

@@ -24,7 +24,7 @@ class RecordingDevice:
 
     def read(self, length: int, timeout_ms: int) -> bytes:
         if not self.reads:
-            raise AssertionError("Unexpected HID read")
+            return b""
         return bytes(self.reads.pop(0))
 
     def close(self) -> None:
@@ -66,17 +66,16 @@ class HendrixDeviceTest(unittest.TestCase):
 
         self.assertEqual(battery_mv, 3775)
 
-    def test_start_rf_sends_ctx_high_then_start(self) -> None:
+    def test_start_rf_sends_single_start_report(self) -> None:
         factory = DeviceFactory()
         controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
 
         reports_sent = controller.start_rf(channel=10, power=5)
 
-        self.assertEqual(reports_sent, 2)
+        self.assertEqual(reports_sent, 1)
         self.assertEqual(
             factory.devices[0].writes,
             [
-                bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]),
                 bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
             ],
         )
@@ -98,15 +97,24 @@ class HendrixDeviceTest(unittest.TestCase):
 
         reports_sent = controller.start_rf(channel=10, power=5)
 
-        self.assertEqual(reports_sent, 2)
+        self.assertEqual(reports_sent, 1)
         self.assertEqual(
             factory.devices[0].writes,
             [
-                bytes([0x0F, 0x14, 0x00, 0x02, 0x00, 0x01]),
                 bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
             ],
         )
         self.assertTrue(factory.devices[0].closed)
+
+    def test_start_rf_records_command_response_when_present(self) -> None:
+        factory = DeviceFactory(reads=[bytes([0x10, 0xAA, 0x55])])
+        controller = HendrixController(product_id=0x008B, device_factory=factory, backend_name="test")
+
+        controller.start_rf(channel=10, power=5)
+        written_reports, response = controller.get_last_io_trace()
+
+        self.assertEqual(written_reports, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
+        self.assertEqual(response, bytes([0x10, 0xAA, 0x55]))
 
     def test_read_battery_writes_request_then_parses_response(self) -> None:
         factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E])])

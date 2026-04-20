@@ -100,7 +100,7 @@
       }
       if (Object.prototype.hasOwnProperty.call(payload, "device_response")) {
         lines.push("Bytes read:");
-        lines.push(payload.device_response || "(no read attempted)");
+        lines.push(payload.device_response || (payload.read_attempted ? "(no bytes returned)" : "(no read attempted)"));
       }
       if ("battery_mv" in payload) lines.push(`Battery mV: ${payload.battery_mv}`);
       if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));
