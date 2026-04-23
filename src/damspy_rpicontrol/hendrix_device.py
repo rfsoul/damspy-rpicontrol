@@ -20,6 +20,12 @@ BATTERY_RESPONSE_MIN_LENGTH = 5
 BATTERY_READ_TIMEOUT_MS = 1000
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
+LED_TEST_REPORT_ID = 21
+LED_TEST_COMMAND_ID = 0x4E
+LED_TEST_RESERVED_LENGTH = 12
+LED_FLASH_STEP_DELAY_S = 0.25
+LED_FLASH_COUNT = 2
+LED_MAX_BRIGHTNESS = 0xFF
 
 INTER_WRITE_DELAY_S = 0.10
 POST_OPEN_DELAY_S = 0.02
@@ -77,6 +83,24 @@ def build_rf_start_report(channel: int, power: int) -> bytes:
 
 def build_rf_stop_report() -> bytes:
     return build_report([0x0D, 0x00])
+
+
+def build_led_test_report(color_index: int, enabled: bool, brightness: int) -> bytes:
+    if color_index not in {0, 1, 2, 3}:
+        raise ValueError("LED colour index must be 0 (red), 1 (green), 2 (blue), or 3 (white).")
+    if brightness < 0 or brightness > LED_MAX_BRIGHTNESS:
+        raise ValueError("LED brightness must be between 0 and 255.")
+
+    return bytes(
+        [
+            LED_TEST_REPORT_ID,
+            LED_TEST_COMMAND_ID,
+            color_index,
+            0x01 if enabled else 0x00,
+            brightness,
+        ]
+        + [0x00] * LED_TEST_RESERVED_LENGTH
+    )
 
 
 def build_battery_info_request() -> bytes:
@@ -138,6 +162,17 @@ class HendrixController:
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
 
+    def flash_led(self, color_index: int, flashes: int = LED_FLASH_COUNT) -> int:
+        if flashes < 1:
+            raise ValueError("LED flash count must be at least 1.")
+
+        reports: list[bytes] = []
+        for _ in range(flashes):
+            reports.append(build_led_test_report(color_index=color_index, enabled=True, brightness=LED_MAX_BRIGHTNESS))
+            reports.append(build_led_test_report(color_index=color_index, enabled=False, brightness=0))
+
+        return self._execute(reports, inter_write_delay_s=LED_FLASH_STEP_DELAY_S)
+
     def read_battery_mv(self) -> int:
         battery_mv, _ = self.read_battery_info()
         return battery_mv
@@ -149,11 +184,11 @@ class HendrixController:
                 self._write_reports(device, [build_battery_info_request()])
                 return self._read_battery_info(device)
 
-    def _execute(self, reports: Sequence[bytes]) -> int:
+    def _execute(self, reports: Sequence[bytes], inter_write_delay_s: float = INTER_WRITE_DELAY_S) -> int:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
-                reports_sent = self._write_reports(device, reports)
+                reports_sent = self._write_reports(device, reports, inter_write_delay_s=inter_write_delay_s)
                 self._read_command_response(device)
                 return reports_sent
 
@@ -186,7 +221,12 @@ class HendrixController:
             except Exception:
                 pass
 
-    def _write_reports(self, device: HidDevice, reports: Sequence[bytes]) -> int:
+    def _write_reports(
+        self,
+        device: HidDevice,
+        reports: Sequence[bytes],
+        inter_write_delay_s: float = INTER_WRITE_DELAY_S,
+    ) -> int:
         reports_sent = 0
 
         for report in reports:
@@ -204,7 +244,7 @@ class HendrixController:
 
             self._last_written_reports.append(bytes(report))
             reports_sent += 1
-            time.sleep(INTER_WRITE_DELAY_S)
+            time.sleep(inter_write_delay_s)
 
         return reports_sent
 

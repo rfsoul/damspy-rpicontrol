@@ -45,6 +45,10 @@ DEVICE_TEMPLATE_FILES: dict[str, str] = {
     "tx": "tx.html",
     "rx": "rx.html",
 }
+TX_LED_FLASH_COLORS: dict[str, int] = {
+    "red": 0,
+    "green": 1,
+}
 
 
 def _format_report(report: Sequence[int]) -> str:
@@ -214,6 +218,32 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         return OperationResponse(
             operation="set_ctx",
             detail=f"Sent CTX {level.upper()} for `{resolved_device_type.value}`.",
+            reports_sent=reports_sent,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
+    @app.post("/api/led/{device_type}/flash/{color}", response_model=OperationResponse)
+    def flash_tx_led(device_type: str, color: str, request: Request) -> OperationResponse:
+        if device_type != DeviceType.TX.value:
+            raise HTTPException(status_code=404, detail="LED test control is only supported for Hendrix TX.")
+        if color not in TX_LED_FLASH_COLORS:
+            raise HTTPException(status_code=404, detail="Unknown TX LED colour.")
+
+        controller = request.app.state.tx_controller
+        try:
+            reports_sent = controller.flash_led(color_index=TX_LED_FLASH_COLORS[color])
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="flash_led",
+            detail=f"Flashed the {color} LED on `tx` twice over one second.",
             reports_sent=reports_sent,
             command_sent=command_sent,
             device_response=device_response,
