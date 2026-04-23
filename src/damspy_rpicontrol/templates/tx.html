@@ -90,6 +90,7 @@ const ledLoopState={
 activeColor:null,
 requestId:0
 };
+const LED_RETRY_DELAY_MS=500;
 
 function setHealthLed(state){healthLed.classList.remove("pass","fail"),"pass"===state?healthLed.classList.add("pass"):"fail"===state&&healthLed.classList.add("fail")}
 
@@ -103,7 +104,7 @@ function setFlashButtonState(activeColor){Object.entries(flashButtons).forEach((
 
 function sleep(ms){return new Promise(resolve=>window.setTimeout(resolve,ms))}
 
-async function runFlashLoop(color,requestId){while(ledLoopState.activeColor===color&&ledLoopState.requestId===requestId){try{writeResult("Success",await requestJson(`/api/led/${currentDevice}/flash/${color}`))}catch(error){if(ledLoopState.requestId===requestId){ledLoopState.activeColor=null,setFlashButtonState(null),writeResult("Error",error)}return}if(ledLoopState.activeColor!==color||ledLoopState.requestId!==requestId){break}await sleep(50)}}
+async function runFlashLoop(color,requestId){while(ledLoopState.activeColor===color&&ledLoopState.requestId===requestId){try{writeResult("Success",await requestJson(`/api/led/${currentDevice}/flash/${color}`));if(ledLoopState.activeColor!==color||ledLoopState.requestId!==requestId){break}await sleep(50)}catch(error){if(ledLoopState.activeColor!==color||ledLoopState.requestId!==requestId){break}writeResult("Retrying",error);await sleep(LED_RETRY_DELAY_MS)}}}
 
 function startFlashLoop(color){ledLoopState.activeColor=color,ledLoopState.requestId+=1,setFlashButtonState(color),void runFlashLoop(color,ledLoopState.requestId)}
 
