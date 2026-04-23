@@ -250,6 +250,30 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             read_attempted=True,
         )
 
+    @app.post("/api/led/{device_type}/off/all", response_model=OperationResponse)
+    def turn_off_tx_leds(device_type: str, request: Request) -> OperationResponse:
+        if device_type != DeviceType.TX.value:
+            raise HTTPException(status_code=404, detail="LED test control is only supported for Hendrix TX.")
+
+        controller = request.app.state.tx_controller
+        try:
+            reports_sent = controller.turn_off_all_leds()
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="turn_off_leds",
+            detail="Turned off all LEDs on `tx`.",
+            reports_sent=reports_sent,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
     @app.post("/api/rf/stop", response_model=OperationResponse)
     def stop_rf(request: Request) -> OperationResponse:
         return _execute_device_command(

@@ -7,6 +7,7 @@ from damspy_rpicontrol.hendrix_device import (
     build_battery_info_request,
     build_ctx_low_report,
     build_ctx_high_report,
+    build_led_off_reports,
     build_led_test_report,
     build_rf_start_report,
     build_rf_stop_report,
@@ -61,6 +62,17 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(
             build_led_test_report(color_index=0, enabled=True, brightness=255),
             bytes([21, 0x4E, 0x00, 0x01, 0xFF] + [0x00] * 12),
+        )
+
+    def test_led_off_reports_cover_all_channels(self) -> None:
+        self.assertEqual(
+            build_led_off_reports(),
+            [
+                bytes([21, 0x4E, 0x00, 0x00, 0x00] + [0x00] * 12),
+                bytes([21, 0x4E, 0x01, 0x00, 0x00] + [0x00] * 12),
+                bytes([21, 0x4E, 0x02, 0x00, 0x00] + [0x00] * 12),
+                bytes([21, 0x4E, 0x03, 0x00, 0x00] + [0x00] * 12),
+            ],
         )
 
     def test_battery_request_matches_reference_shape(self) -> None:
@@ -141,6 +153,27 @@ class HendrixDeviceTest(unittest.TestCase):
                 bytes([21, 0x4E, 0x01, 0x00, 0x00] + [0x00] * 12),
                 bytes([21, 0x4E, 0x01, 0x01, 0xFF] + [0x00] * 12),
                 bytes([21, 0x4E, 0x01, 0x00, 0x00] + [0x00] * 12),
+            ],
+        )
+        self.assertTrue(factory.devices[0].closed)
+
+    def test_turn_off_all_leds_sends_all_off_reports(self) -> None:
+        factory = DeviceFactory()
+        controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
+
+        with patch("damspy_rpicontrol.hendrix_device.POST_OPEN_DELAY_S", 0), patch(
+            "damspy_rpicontrol.hendrix_device.INTER_WRITE_DELAY_S", 0
+        ):
+            reports_sent = controller.turn_off_all_leds()
+
+        self.assertEqual(reports_sent, 4)
+        self.assertEqual(
+            factory.devices[0].writes,
+            [
+                bytes([21, 0x4E, 0x00, 0x00, 0x00] + [0x00] * 12),
+                bytes([21, 0x4E, 0x01, 0x00, 0x00] + [0x00] * 12),
+                bytes([21, 0x4E, 0x02, 0x00, 0x00] + [0x00] * 12),
+                bytes([21, 0x4E, 0x03, 0x00, 0x00] + [0x00] * 12),
             ],
         )
         self.assertTrue(factory.devices[0].closed)

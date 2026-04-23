@@ -17,6 +17,8 @@ label{display:grid;gap:.35rem;font-weight:600}
 select,input,button{font:inherit;padding:.7rem .8rem;border-radius:8px;border:1px solid #cbd5e1}
 button{cursor:pointer;background:#0f172a;color:#fff;border:none}
 button.secondary{background:#475569}
+button.active{background:#b91c1c}
+button.active.secondary{background:#15803d}
 pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:1rem;min-height:6rem}
 .health-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .health-led{width:14px;height:14px;border-radius:9999px;background:#9ca3af;border:1px solid #6b7280;box-shadow:inset 0 0 4px rgba(0,0,0,.45)}
@@ -45,8 +47,9 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color
 <section>
 <h2>Test TX RGB LED</h2>
 <div class="health-row">
-<button id="flash-led-red" type="button">Flash LED Red (2x/sec)</button>
-<button class="secondary" id="flash-led-green" type="button">Flash LED Green (2x/sec)</button>
+<button id="flash-led-red" type="button" aria-pressed="false">Flash LED Red (toggle)</button>
+<button class="secondary" id="flash-led-green" type="button" aria-pressed="false">Flash LED Green (toggle)</button>
+<button id="led-off-all" type="button">Turn Off All LEDs</button>
 </div>
 </section>
 <section>
@@ -79,6 +82,14 @@ const currentDevice="tx";
 const output=document.getElementById("output");
 const healthLed=document.getElementById("health-led");
 const batteryMvField=document.getElementById("battery-mv");
+const flashButtons={
+red:document.getElementById("flash-led-red"),
+green:document.getElementById("flash-led-green")
+};
+const ledLoopState={
+activeColor:null,
+requestId:0
+};
 
 function setHealthLed(state){healthLed.classList.remove("pass","fail"),"pass"===state?healthLed.classList.add("pass"):"fail"===state&&healthLed.classList.add("fail")}
 
@@ -88,15 +99,28 @@ async function requestJson(endpoint,payload,method="POST"){const response=await 
 
 function bindAction(buttonId,endpoint){document.getElementById(buttonId).addEventListener("click",async()=>{try{writeResult("Success",await requestJson(endpoint))}catch(error){writeResult("Error",error)}})}
 
+function setFlashButtonState(activeColor){Object.entries(flashButtons).forEach(([color,button])=>{const active=color===activeColor;button.classList.toggle("active",active),button.setAttribute("aria-pressed",String(active))})}
+
+function sleep(ms){return new Promise(resolve=>window.setTimeout(resolve,ms))}
+
+async function runFlashLoop(color,requestId){while(ledLoopState.activeColor===color&&ledLoopState.requestId===requestId){try{writeResult("Success",await requestJson(`/api/led/${currentDevice}/flash/${color}`))}catch(error){if(ledLoopState.requestId===requestId){ledLoopState.activeColor=null,setFlashButtonState(null),writeResult("Error",error)}return}if(ledLoopState.activeColor!==color||ledLoopState.requestId!==requestId){break}await sleep(50)}}
+
+function startFlashLoop(color){ledLoopState.activeColor=color,ledLoopState.requestId+=1,setFlashButtonState(color),void runFlashLoop(color,ledLoopState.requestId)}
+
+function stopFlashLoop(){ledLoopState.activeColor=null,ledLoopState.requestId+=1,setFlashButtonState(null)}
+
+async function turnOffAllLeds(){stopFlashLoop();try{writeResult("Success",await requestJson(`/api/led/${currentDevice}/off/all`))}catch(error){writeResult("Error",error)}}
+
 document.querySelectorAll("form[data-endpoint]").forEach(form=>{form.addEventListener("submit",async event=>{event.preventDefault();const payload=Object.fromEntries(new FormData(form).entries());"channel"in payload&&(payload.channel=Number(payload.channel)),"power"in payload&&(payload.power=Number(payload.power));try{writeResult("Success",await requestJson(form.dataset.endpoint,payload))}catch(error){writeResult("Error",error)}})});
 
 document.getElementById("battery-form").addEventListener("submit",async event=>{event.preventDefault();try{const payload=await requestJson(`/api/battery/${currentDevice}`);batteryMvField.value=String(payload.battery_mv),writeResult("Success",payload)}catch(error){batteryMvField.value="",writeResult("Error",error)}})
 
 bindAction("ctx-low",`/api/ctx/${currentDevice}/low`);
 bindAction("ctx-high",`/api/ctx/${currentDevice}/high`);
-bindAction("flash-led-red",`/api/led/${currentDevice}/flash/red`);
-bindAction("flash-led-green",`/api/led/${currentDevice}/flash/green`);
 bindAction("stop-rf",`/api/rf/stop/${currentDevice}`);
+flashButtons.red.addEventListener("click",()=>{ledLoopState.activeColor==="red"?void turnOffAllLeds():startFlashLoop("red")});
+flashButtons.green.addEventListener("click",()=>{ledLoopState.activeColor==="green"?void turnOffAllLeds():startFlashLoop("green")});
+document.getElementById("led-off-all").addEventListener("click",()=>{void turnOffAllLeds()});
 
 document.getElementById("health-check").addEventListener("click",async()=>{try{const payload=await requestJson("/api/healthcheck",null,"POST");setHealthLed(payload.passed?"pass":"fail"),output.textContent=payload.output||"(no healthcheck output)"}catch(error){setHealthLed("fail"),writeResult("Error",error)}})
 </script>

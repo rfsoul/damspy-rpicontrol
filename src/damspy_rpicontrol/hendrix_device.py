@@ -103,6 +103,10 @@ def build_led_test_report(color_index: int, enabled: bool, brightness: int) -> b
     )
 
 
+def build_led_off_reports() -> list[bytes]:
+    return [build_led_test_report(color_index=color_index, enabled=False, brightness=0) for color_index in (0, 1, 2, 3)]
+
+
 def build_battery_info_request() -> bytes:
     return bytes([BATTERY_REQUEST_REPORT_ID, BATTERY_COMMAND_ID] + [0x00] * (BATTERY_REQUEST_LENGTH - 2))
 
@@ -172,6 +176,9 @@ class HendrixController:
             reports.append(build_led_test_report(color_index=color_index, enabled=False, brightness=0))
 
         return self._execute(reports, inter_write_delay_s=LED_FLASH_STEP_DELAY_S)
+
+    def turn_off_all_leds(self) -> int:
+        return self._execute(build_led_off_reports())
 
     def read_battery_mv(self) -> int:
         battery_mv, _ = self.read_battery_info()
