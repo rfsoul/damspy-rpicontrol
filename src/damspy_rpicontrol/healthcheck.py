@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import glob
+import importlib
 import os
 import subprocess
 import sys
@@ -7,6 +8,11 @@ from pathlib import Path
 
 
 VID = "19f7"
+SUPPORTED_PRODUCTS = {
+    "008a": "Hendrix TX",
+    "008b": "Hendrix RX",
+    "008c": "RODE RXCC",
+}
 
 
 def run_command(cmd):
@@ -109,6 +115,35 @@ def test_open(path):
         return False, str(exc)
 
 
+def load_hidapi_module():
+    try:
+        return importlib.import_module("hidapi"), ""
+    except Exception as exc:
+        return None, str(exc)
+
+
+def test_hidapi_open(product_id):
+    hidapi_module, error = load_hidapi_module()
+    if hidapi_module is None:
+        return False, f"hidapi import failed ({error})"
+
+    device = None
+    try:
+        device = hidapi_module.Device(vendor_id=int(VID, 16), product_id=int(product_id, 16))
+        set_nonblocking = getattr(device, "set_nonblocking", None)
+        if callable(set_nonblocking):
+            set_nonblocking(True)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if device is not None:
+            try:
+                device.close()
+            except Exception:
+                pass
+
+
 def main():
     print_section("HID HEALTH CHECK")
     code, date_out, _ = run_command(["date"])
@@ -141,6 +176,7 @@ def main():
 
     print_section("HID MAPPING")
     found_any_19f7_hid = False
+    mapped_supported_products = []
 
     if not hidraw_nodes:
         print("No hidraw nodes found")
@@ -158,6 +194,8 @@ def main():
                 continue
 
             found_any_19f7_hid = True
+            if info["product_id"] in SUPPORTED_PRODUCTS:
+                mapped_supported_products.append(info["product_id"])
             print(node)
             print(f"  usb path: {info['usb_path']}")
             print(f"  vid:pid: {info['vendor']}:{info['product_id']}")
@@ -183,8 +221,29 @@ def main():
         print("No hidraw nodes mapped to vendor 19f7 devices")
         print()
 
+    print_section("HIDAPI OPEN TESTS")
+    if not mapped_supported_products:
+        print("FAIL: No supported Hendrix/RXCC devices were mapped to hidraw nodes")
+        sys.exit(1)
+
+    hidapi_failures = []
+    for product_id in sorted(set(mapped_supported_products)):
+        label = SUPPORTED_PRODUCTS.get(product_id, product_id)
+        ok, err = test_hidapi_open(product_id)
+        if ok:
+            print(f"{label} ({VID}:{product_id})  hidapi open: PASS")
+        else:
+            hidapi_failures.append((product_id, err))
+            print(f"{label} ({VID}:{product_id})  hidapi open: FAIL ({err})")
+    print()
+
+    if hidapi_failures:
+        print_section("RESULT")
+        print("FAIL: USB presence is OK, but the hidapi open path used by the server is failing.")
+        sys.exit(1)
+
     print_section("RESULT")
-    print("PASS: Listed all attached 19f7 USB devices and matching hidraw nodes")
+    print("PASS: Supported 19f7 device nodes are present and hidapi can open them.")
 
 
 if __name__ == "__main__":

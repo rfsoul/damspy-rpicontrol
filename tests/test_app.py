@@ -3,6 +3,7 @@ import unittest
 from fastapi import Request
 
 from damspy_rpicontrol.main import create_app
+from damspy_rpicontrol.models import AntennaRequest, FrontendMode, FrontendModeRequest, StartRfRequest
 from damspy_rpicontrol.rxcc_device import RxccController
 
 
@@ -56,6 +57,29 @@ class StubHendrixController:
         return list(self.last_written_reports), self.last_response
 
 
+class RecordingRxccDevice:
+    def __init__(self) -> None:
+        self.writes: list[bytes] = []
+        self.closed = False
+
+    def write(self, data: bytes) -> int:
+        self.writes.append(bytes(data))
+        return len(data)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class RxccDeviceFactory:
+    def __init__(self) -> None:
+        self.devices: list[RecordingRxccDevice] = []
+
+    def __call__(self) -> RecordingRxccDevice:
+        device = RecordingRxccDevice()
+        self.devices.append(device)
+        return device
+
+
 class AppStructureTest(unittest.TestCase):
     def test_expected_routes_exist(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -85,6 +109,10 @@ class AppStructureTest(unittest.TestCase):
         body = response.body.decode("utf-8")
         self.assertIn("RODE RXCC 008C", body)
         self.assertIn("Devices:", body)
+        self.assertIn("Transmitting-PA mode", body)
+        self.assertIn("Bypass mode", body)
+        self.assertIn("Receiving mode", body)
+        self.assertNotIn("name=\"antenna\"", body)
 
     def test_tx_page_uses_tx_specific_template(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -116,6 +144,47 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("CTX LOW", body)
         self.assertIn("CTX HIGH", body)
         self.assertNotIn("Battery Voltage (mV)", body)
+
+    def test_rxcc_frontend_mode_endpoint_formats_hendrix_command_byte(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        frontend_route = next(route for route in app.routes if route.path == "/api/frontend/mode")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/frontend/mode"})
+
+        response = frontend_route.endpoint(FrontendModeRequest(mode=FrontendMode.TRANSMITTING_PA), request)
+
+        self.assertEqual(response.command_sent, ["15 14 0 2 0 1", "15 14 0 2 1 0", "15 14 0 2 2 0"])
+        self.assertEqual(
+            factory.devices[0].writes,
+            [
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x01, 0x00]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x02, 0x00]),
+            ],
+        )
+
+    def test_rxcc_antenna_endpoint_sends_only_antenna_report(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        antenna_route = next(route for route in app.routes if route.path == "/api/antenna")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/antenna"})
+
+        response = antenna_route.endpoint(AntennaRequest(path="secondary"), request)
+
+        self.assertEqual(response.command_sent, ["15 14 0 2 3 1"])
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x03, 0x01])])
+
+    def test_rxcc_start_rf_endpoint_sends_only_start_report(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        start_route = next(route for route in app.routes if route.path == "/api/rf/start")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start"})
+
+        response = start_route.endpoint(StartRfRequest(device="rxcc", channel=10, power=5), request)
+
+        self.assertEqual(response.command_sent, ["15 3 0 10 0 5"])
+        self.assertEqual(response.detail, "Started RF on channel 10 at power 5.")
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
 
     def test_tx_battery_endpoint_returns_battery_mv(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

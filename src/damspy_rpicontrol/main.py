@@ -330,26 +330,16 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                     detail = f"Selected `{payload.antenna.value}` antenna path."
                     operation = "set_antenna"
                 elif command == DeviceCommand.START_RF:
-                    if payload.antenna is None:
-                        raise HTTPException(
-                            status_code=422,
-                            detail="`antenna` is required when starting RF for RXCC.",
-                        )
                     if payload.channel is None or payload.power is None:
                         raise HTTPException(
                             status_code=422,
                             detail="`channel` and `power` are required for RF start.",
                         )
                     reports_sent = controller.start_rf(
-                        antenna=payload.antenna,
                         channel=payload.channel,
                         power=payload.power,
                     )
-                    detail = (
-                        "Applied transmitting-pa mode, selected "
-                        f"`{payload.antenna.value}` antenna, and started RF on "
-                        f"channel {payload.channel} at power {payload.power}."
-                    )
+                    detail = f"Started RF on channel {payload.channel} at power {payload.power}."
                     operation = "start_rf"
                 elif command == DeviceCommand.STOP_RF:
                     reports_sent = controller.stop_rf()

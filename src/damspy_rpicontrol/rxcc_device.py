@@ -74,7 +74,7 @@ def build_report(payload: Sequence[int]) -> bytes:
 
 
 def build_gpio_report(pin: int, level: int) -> bytes:
-    return build_report([0x14, 0x00, 0x02, pin, level])
+    return build_report([0x0E, 0x00, 0x02, pin, level])
 
 
 def build_rf_start_report(channel: int, power: int) -> bytes:
@@ -124,23 +124,10 @@ class RxccController:
         return self._execute(frontend_mode_reports(mode))
 
     def apply_antenna(self, path: AntennaPath) -> int:
-        """
-        Match the known-good RXCC_set_antenna.py behavior:
-        set Transmitting-PA mode first, then set antenna pin 3.
-        """
-        reports = [
-            *frontend_mode_reports(FrontendMode.TRANSMITTING_PA),
-            *antenna_reports(path),
-        ]
-        return self._execute(reports)
+        return self._execute(antenna_reports(path))
 
-    def start_rf(self, antenna: AntennaPath, channel: int, power: int) -> int:
-        reports = [
-            *frontend_mode_reports(FrontendMode.TRANSMITTING_PA),
-            *antenna_reports(antenna),
-            build_rf_start_report(channel=channel, power=power),
-        ]
-        return self._execute(reports)
+    def start_rf(self, channel: int, power: int) -> int:
+        return self._execute([build_rf_start_report(channel=channel, power=power)])
 
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
