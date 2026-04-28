@@ -12,6 +12,8 @@ from damspy_rpicontrol.models import AntennaPath, FrontendMode
 VENDOR_ID = 0x19F7
 PRODUCT_ID = 0x008C
 REPORT_ID = 0x0F
+COMMAND_RESPONSE_LENGTH = 64
+COMMAND_READ_TIMEOUT_MS = 200
 
 # Small settle delays to match the known-good standalone scripts more closely.
 INTER_WRITE_DELAY_S = 0.10
@@ -28,6 +30,9 @@ class DeviceCommunicationError(RuntimeError):
 
 class HidDevice(Protocol):
     def write(self, data: bytes) -> int | None:
+        ...
+
+    def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int]:
         ...
 
     def close(self) -> None:
@@ -123,11 +128,19 @@ class RxccController:
     def apply_frontend_mode(self, mode: FrontendMode) -> int:
         return self._execute(frontend_mode_reports(mode))
 
+    def apply_gpio(self, pin: int, level: int) -> int:
+        return self._execute([build_gpio_report(pin=pin, level=level)])
+
     def apply_antenna(self, path: AntennaPath) -> int:
         return self._execute(antenna_reports(path))
 
-    def start_rf(self, channel: int, power: int) -> int:
-        return self._execute([build_rf_start_report(channel=channel, power=power)])
+    def start_rf(self, antenna: AntennaPath, channel: int, power: int) -> int:
+        reports = [
+            *frontend_mode_reports(FrontendMode.TRANSMITTING_PA),
+            *antenna_reports(antenna),
+            build_rf_start_report(channel=channel, power=power),
+        ]
+        return self._execute(reports)
 
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
@@ -136,7 +149,9 @@ class RxccController:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
-                return self._write_reports(device, reports)
+                reports_sent = self._write_reports(device, reports)
+                self._read_command_response(device)
+                return reports_sent
 
     def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
         return list(self._last_written_reports), self._last_response
@@ -150,6 +165,9 @@ class RxccController:
 
         try:
             device = self._device_factory()
+            set_nonblocking = getattr(device, "set_nonblocking", None)
+            if callable(set_nonblocking):
+                set_nonblocking(True)
             time.sleep(POST_OPEN_DELAY_S)
         except Exception as exc:
             raise DeviceCommunicationError(
@@ -187,6 +205,21 @@ class RxccController:
             time.sleep(INTER_WRITE_DELAY_S)
 
         return reports_sent
+
+    def _read_command_response(self, device: HidDevice) -> bytes | None:
+        try:
+            response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
+        except Exception:
+            self._last_response = None
+            return None
+
+        response_bytes = bytes(response)
+        if not response_bytes:
+            self._last_response = None
+            return None
+
+        self._last_response = response_bytes
+        return response_bytes
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []

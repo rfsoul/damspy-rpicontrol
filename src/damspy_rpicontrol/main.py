@@ -128,6 +128,29 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             payload=DeviceCommandRequest(antenna=payload.path),
         )
 
+    @app.post("/api/rxcc/gpio/{pin}/{level}", response_model=OperationResponse)
+    def set_rxcc_gpio(pin: int, level: int, request: Request) -> OperationResponse:
+        if pin not in {0, 1, 2, 3}:
+            raise HTTPException(status_code=422, detail="`pin` must be 0, 1, 2, or 3.")
+        if level not in {0, 1}:
+            raise HTTPException(status_code=422, detail="`level` must be 0 or 1.")
+
+        controller = request.app.state.controller
+        try:
+            reports_sent = controller.apply_gpio(pin=pin, level=level)
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="set_gpio",
+            detail=f"Sent RXCC GPIO command for pin {pin} level {level}.",
+            reports_sent=reports_sent,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
     @app.post("/api/rf/start", response_model=OperationResponse)
     def start_rf(
         payload: StartRfRequest,
@@ -330,16 +353,26 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                     detail = f"Selected `{payload.antenna.value}` antenna path."
                     operation = "set_antenna"
                 elif command == DeviceCommand.START_RF:
+                    if payload.antenna is None:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="`antenna` is required when starting RF for RXCC.",
+                        )
                     if payload.channel is None or payload.power is None:
                         raise HTTPException(
                             status_code=422,
                             detail="`channel` and `power` are required for RF start.",
                         )
                     reports_sent = controller.start_rf(
+                        antenna=payload.antenna,
                         channel=payload.channel,
                         power=payload.power,
                     )
-                    detail = f"Started RF on channel {payload.channel} at power {payload.power}."
+                    detail = (
+                        "Applied transmitting-pa mode, selected "
+                        f"`{payload.antenna.value}` antenna, and started RF on "
+                        f"channel {payload.channel} at power {payload.power}."
+                    )
                     operation = "start_rf"
                 elif command == DeviceCommand.STOP_RF:
                     reports_sent = controller.stop_rf()
@@ -359,6 +392,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                 reports_sent=reports_sent,
                 command_sent=command_sent,
                 device_response=device_response,
+                read_attempted=True,
             )
 
         if command in {DeviceCommand.SET_FRONTEND_MODE, DeviceCommand.SET_ANTENNA}:

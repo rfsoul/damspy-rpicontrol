@@ -12,24 +12,31 @@ from damspy_rpicontrol.rxcc_device import (
 
 
 class RecordingDevice:
-    def __init__(self) -> None:
+    def __init__(self, reads: list[bytes | list[int]] | None = None) -> None:
         self.writes: list[bytes | list[int]] = []
+        self.reads = list(reads or [])
         self.closed = False
 
     def write(self, data: bytes | list[int]) -> int:
         self.writes.append(bytes(data))
         return len(data)
 
+    def read(self, length: int, timeout_ms: int) -> bytes:
+        if not self.reads:
+            return b""
+        return bytes(self.reads.pop(0))
+
     def close(self) -> None:
         self.closed = True
 
 
 class DeviceFactory:
-    def __init__(self) -> None:
+    def __init__(self, reads: list[bytes | list[int]] | None = None) -> None:
         self.devices: list[RecordingDevice] = []
+        self.reads = list(reads or [])
 
     def __call__(self) -> RecordingDevice:
-        device = RecordingDevice()
+        device = RecordingDevice(reads=self.reads)
         self.devices.append(device)
         return device
 
@@ -91,21 +98,35 @@ class RxccDeviceTest(unittest.TestCase):
         self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x03, 0x01])])
         self.assertTrue(factory.devices[0].closed)
 
-    def test_start_rf_sends_single_start_report(self) -> None:
+    def test_start_rf_enforces_mode_then_antenna_then_start(self) -> None:
         factory = DeviceFactory()
         controller = RxccController(device_factory=factory, backend_name="test")
 
-        reports_sent = controller.start_rf(channel=10, power=5)
+        reports_sent = controller.start_rf(AntennaPath.MAIN, channel=10, power=5)
 
-        self.assertEqual(reports_sent, 1)
+        self.assertEqual(reports_sent, 5)
         self.assertEqual(len(factory.devices), 1)
         self.assertEqual(
             factory.devices[0].writes,
             [
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x01, 0x00]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x02, 0x00]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x03, 0x00]),
                 bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
             ],
         )
         self.assertTrue(factory.devices[0].closed)
+
+    def test_apply_gpio_records_device_response_when_present(self) -> None:
+        factory = DeviceFactory(reads=[bytes([0xAA, 0x55])])
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        controller.apply_gpio(pin=0, level=1)
+        written_reports, response = controller.get_last_io_trace()
+
+        self.assertEqual(written_reports, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01])])
+        self.assertEqual(response, bytes([0xAA, 0x55]))
 
 
 if __name__ == "__main__":
