@@ -20,6 +20,7 @@ BATTERY_RESPONSE_MIN_LENGTH = 5
 BATTERY_READ_TIMEOUT_MS = 1000
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
+COMMAND_READ_POLL_INTERVAL_S = 0.01
 LED_TEST_REPORT_ID = 21
 LED_TEST_COMMAND_ID = 0x4E
 LED_TEST_RESERVED_LENGTH = 12
@@ -43,7 +44,7 @@ class HidDevice(Protocol):
     def write(self, data: bytes) -> int | None:
         ...
 
-    def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int]:
+    def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int] | None:
         ...
 
     def close(self) -> None:
@@ -260,18 +261,26 @@ class HendrixController:
         return battery_mv
 
     def _read_command_response(self, device: HidDevice) -> bytes | None:
-        try:
-            response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
-        except Exception:
-            return None
+        deadline = time.monotonic() + (COMMAND_READ_TIMEOUT_MS / 1000)
 
-        response_bytes = bytes(response)
-        if not response_bytes:
-            self._last_response = None
-            return None
+        while True:
+            try:
+                response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
+            except Exception:
+                self._last_response = None
+                return None
 
-        self._last_response = response_bytes
-        return response_bytes
+            if response is not None:
+                response_bytes = bytes(response)
+                if response_bytes:
+                    self._last_response = response_bytes
+                    return response_bytes
+
+            if time.monotonic() >= deadline:
+                self._last_response = None
+                return None
+
+            time.sleep(COMMAND_READ_POLL_INTERVAL_S)
 
     def _read_battery_info(self, device: HidDevice) -> tuple[int, bytes]:
         try:
@@ -280,6 +289,10 @@ class HendrixController:
             raise DeviceCommunicationError(
                 f"Failed while reading Hendrix battery response ({exc})."
             ) from exc
+
+        if response is None:
+            self._last_response = None
+            raise DeviceCommunicationError("Hendrix battery response was empty.")
 
         response_bytes = bytes(response)
         self._last_response = response_bytes

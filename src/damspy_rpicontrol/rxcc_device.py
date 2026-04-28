@@ -14,6 +14,7 @@ PRODUCT_ID = 0x008C
 REPORT_ID = 0x0F
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
+COMMAND_READ_POLL_INTERVAL_S = 0.01
 
 # Small settle delays to match the known-good standalone scripts more closely.
 INTER_WRITE_DELAY_S = 0.10
@@ -32,7 +33,7 @@ class HidDevice(Protocol):
     def write(self, data: bytes) -> int | None:
         ...
 
-    def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int]:
+    def read(self, length: int, timeout_ms: int) -> bytes | Sequence[int] | None:
         ...
 
     def close(self) -> None:
@@ -207,19 +208,26 @@ class RxccController:
         return reports_sent
 
     def _read_command_response(self, device: HidDevice) -> bytes | None:
-        try:
-            response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
-        except Exception:
-            self._last_response = None
-            return None
+        deadline = time.monotonic() + (COMMAND_READ_TIMEOUT_MS / 1000)
 
-        response_bytes = bytes(response)
-        if not response_bytes:
-            self._last_response = None
-            return None
+        while True:
+            try:
+                response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
+            except Exception:
+                self._last_response = None
+                return None
 
-        self._last_response = response_bytes
-        return response_bytes
+            if response is not None:
+                response_bytes = bytes(response)
+                if response_bytes:
+                    self._last_response = response_bytes
+                    return response_bytes
+
+            if time.monotonic() >= deadline:
+                self._last_response = None
+                return None
+
+            time.sleep(COMMAND_READ_POLL_INTERVAL_S)
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []

@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 
 from damspy_rpicontrol.models import AntennaPath, FrontendMode
 from damspy_rpicontrol.rxcc_device import (
@@ -12,7 +13,7 @@ from damspy_rpicontrol.rxcc_device import (
 
 
 class RecordingDevice:
-    def __init__(self, reads: list[bytes | list[int]] | None = None) -> None:
+    def __init__(self, reads: list[bytes | list[int] | None] | None = None) -> None:
         self.writes: list[bytes | list[int]] = []
         self.reads = list(reads or [])
         self.closed = False
@@ -21,17 +22,20 @@ class RecordingDevice:
         self.writes.append(bytes(data))
         return len(data)
 
-    def read(self, length: int, timeout_ms: int) -> bytes:
+    def read(self, length: int, timeout_ms: int) -> bytes | None:
         if not self.reads:
             return b""
-        return bytes(self.reads.pop(0))
+        response = self.reads.pop(0)
+        if response is None:
+            return None
+        return bytes(response)
 
     def close(self) -> None:
         self.closed = True
 
 
 class DeviceFactory:
-    def __init__(self, reads: list[bytes | list[int]] | None = None) -> None:
+    def __init__(self, reads: list[bytes | list[int] | None] | None = None) -> None:
         self.devices: list[RecordingDevice] = []
         self.reads = list(reads or [])
 
@@ -126,6 +130,26 @@ class RxccDeviceTest(unittest.TestCase):
         written_reports, response = controller.get_last_io_trace()
 
         self.assertEqual(written_reports, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01])])
+        self.assertEqual(response, bytes([0xAA, 0x55]))
+
+    def test_apply_gpio_treats_none_response_as_no_bytes_returned(self) -> None:
+        factory = DeviceFactory(reads=[None])
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        controller.apply_gpio(pin=0, level=1)
+        written_reports, response = controller.get_last_io_trace()
+
+        self.assertEqual(written_reports, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01])])
+        self.assertIsNone(response)
+
+    def test_apply_gpio_polls_until_delayed_response_arrives(self) -> None:
+        factory = DeviceFactory(reads=[None, b"", bytes([0xAA, 0x55])])
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        with unittest.mock.patch("damspy_rpicontrol.rxcc_device.COMMAND_READ_POLL_INTERVAL_S", 0):
+            controller.apply_gpio(pin=0, level=1)
+        _, response = controller.get_last_io_trace()
+
         self.assertEqual(response, bytes([0xAA, 0x55]))
 
 

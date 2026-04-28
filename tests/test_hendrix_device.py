@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 from damspy_rpicontrol.hendrix_device import (
@@ -16,7 +17,7 @@ from damspy_rpicontrol.hendrix_device import (
 
 
 class RecordingDevice:
-    def __init__(self, reads: list[bytes | list[int]] | None = None) -> None:
+    def __init__(self, reads: list[bytes | list[int] | None] | None = None) -> None:
         self.writes: list[bytes | list[int]] = []
         self.reads = list(reads or [])
         self.closed = False
@@ -25,17 +26,20 @@ class RecordingDevice:
         self.writes.append(bytes(data))
         return len(data)
 
-    def read(self, length: int, timeout_ms: int) -> bytes:
+    def read(self, length: int, timeout_ms: int) -> bytes | None:
         if not self.reads:
             return b""
-        return bytes(self.reads.pop(0))
+        response = self.reads.pop(0)
+        if response is None:
+            return None
+        return bytes(response)
 
     def close(self) -> None:
         self.closed = True
 
 
 class DeviceFactory:
-    def __init__(self, reads: list[bytes | list[int]] | None = None) -> None:
+    def __init__(self, reads: list[bytes | list[int] | None] | None = None) -> None:
         self.devices: list[RecordingDevice] = []
         self.reads = list(reads or [])
 
@@ -136,6 +140,26 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(written_reports, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
         self.assertEqual(response, bytes([0x10, 0xAA, 0x55]))
 
+    def test_start_rf_treats_none_response_as_no_bytes_returned(self) -> None:
+        factory = DeviceFactory(reads=[None])
+        controller = HendrixController(product_id=0x008B, device_factory=factory, backend_name="test")
+
+        controller.start_rf(channel=10, power=5)
+        written_reports, response = controller.get_last_io_trace()
+
+        self.assertEqual(written_reports, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
+        self.assertIsNone(response)
+
+    def test_start_rf_polls_until_delayed_response_arrives(self) -> None:
+        factory = DeviceFactory(reads=[None, b"", bytes([0x10, 0xAA, 0x55])])
+        controller = HendrixController(product_id=0x008B, device_factory=factory, backend_name="test")
+
+        with unittest.mock.patch("damspy_rpicontrol.hendrix_device.COMMAND_READ_POLL_INTERVAL_S", 0):
+            controller.start_rf(channel=10, power=5)
+        _, response = controller.get_last_io_trace()
+
+        self.assertEqual(response, bytes([0x10, 0xAA, 0x55]))
+
     def test_flash_led_sends_two_on_off_cycles(self) -> None:
         factory = DeviceFactory()
         controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
@@ -187,6 +211,13 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(battery_mv, 3775)
         self.assertEqual(factory.devices[0].writes, [bytes([0x01, 0x61] + [0x00] * 15)])
         self.assertTrue(factory.devices[0].closed)
+
+    def test_read_battery_rejects_none_response(self) -> None:
+        factory = DeviceFactory(reads=[None])
+        controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
+
+        with self.assertRaises(DeviceCommunicationError):
+            controller.read_battery_mv()
 
     def test_parse_battery_response_rejects_unexpected_status(self) -> None:
         with self.assertRaises(DeviceCommunicationError):
