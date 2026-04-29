@@ -26,16 +26,18 @@
     .command-row { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.55rem; flex-wrap: wrap; }
     .command-row code { margin-top: 0; }
     .command-grid { display: grid; gap: 0.65rem; }
-    .command-grid.headers { grid-template-columns: 1fr 1fr; font-weight: 700; color: #334155; margin-bottom: 0.3rem; }
-    .command-grid.rows { grid-template-columns: 1fr 1fr; }
+    .command-grid.headers { grid-template-columns: 7rem 1fr 1fr; font-weight: 700; color: #334155; margin-bottom: 0.3rem; }
+    .command-grid.rows { grid-template-columns: 7rem 1fr 1fr; }
+    .signal-cell { display: flex; align-items: center; font-weight: 700; color: #0f172a; }
     .command-cell { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.75rem; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
     .command-cell code { display: block; margin: 0; }
     .action-card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.85rem; background: #f8fafc; }
     .action-card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
     .action-card p { margin: 0 0 0.85rem; color: #475569; }
     .compact-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .signal-pill { font-weight: 700; color: #0f172a; min-width: 5.5rem; }
     @media (max-width: 800px) {
-      .command-grid.headers, .command-grid.rows, .compact-grid { grid-template-columns: 1fr; }
+      .compact-grid { grid-template-columns: 1fr; }
       .command-cell { align-items: flex-start; }
     }
     .health-led { width: 14px; height: 14px; border-radius: 9999px; background: #9ca3af; border: 1px solid #6b7280; box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.45); }
@@ -58,10 +60,12 @@
     <section>
       <h2>Transmitting PA Mode</h2>
       <div class="command-grid headers">
+        <div>Signal</div>
         <div>Enable</div>
         <div>Disable</div>
       </div>
       <div class="command-grid rows">
+        <div class="signal-cell">CTX</div>
         <div class="command-cell">
           <code>15 14 0 2 0 1</code>
           <button type="button" data-gpio-pin="0" data-gpio-level="1">Send</button>
@@ -70,6 +74,7 @@
           <code>15 14 0 2 0 0</code>
           <button class="secondary" type="button" data-gpio-pin="0" data-gpio-level="0">Send</button>
         </div>
+        <div class="signal-cell">CPS</div>
         <div class="command-cell">
           <code>15 14 0 2 1 0</code>
           <button type="button" data-gpio-pin="1" data-gpio-level="0">Send</button>
@@ -78,6 +83,7 @@
           <code>15 14 0 2 1 1</code>
           <button class="secondary" type="button" data-gpio-pin="1" data-gpio-level="1">Send</button>
         </div>
+        <div class="signal-cell">CRX</div>
         <div class="command-cell">
           <code>15 14 0 2 2 0</code>
           <button type="button" data-gpio-pin="2" data-gpio-level="0">Send</button>
@@ -92,10 +98,12 @@
     <section>
       <h2>Bypass Mode</h2>
       <div class="command-grid headers">
+        <div>Signal</div>
         <div>Enable</div>
         <div>Disable</div>
       </div>
       <div class="command-grid rows">
+        <div class="signal-cell">CTX</div>
         <div class="command-cell">
           <code>15 14 0 2 0 0</code>
           <button type="button" data-gpio-pin="0" data-gpio-level="0">Send</button>
@@ -104,6 +112,7 @@
           <code>15 14 0 2 0 1</code>
           <button class="secondary" type="button" data-gpio-pin="0" data-gpio-level="1">Send</button>
         </div>
+        <div class="signal-cell">CPS</div>
         <div class="command-cell">
           <code>15 14 0 2 1 1</code>
           <button type="button" data-gpio-pin="1" data-gpio-level="1">Send</button>
@@ -112,6 +121,7 @@
           <code>15 14 0 2 1 0</code>
           <button class="secondary" type="button" data-gpio-pin="1" data-gpio-level="0">Send</button>
         </div>
+        <div class="signal-cell">CRX</div>
         <div class="command-cell">
           <code>15 14 0 2 2 0</code>
           <button type="button" data-gpio-pin="2" data-gpio-level="0">Send</button>
@@ -126,10 +136,12 @@
     <section>
       <h2>Receiving Mode</h2>
       <div class="command-grid headers">
+        <div>Signal</div>
         <div>Enable</div>
         <div>Disable</div>
       </div>
       <div class="command-grid rows">
+        <div class="signal-cell">CTX</div>
         <div class="command-cell">
           <code>15 14 0 2 0 0</code>
           <button type="button" data-gpio-pin="0" data-gpio-level="0">Send</button>
@@ -138,6 +150,7 @@
           <code>15 14 0 2 0 1</code>
           <button class="secondary" type="button" data-gpio-pin="0" data-gpio-level="1">Send</button>
         </div>
+        <div class="signal-cell">CPS</div>
         <div class="command-cell">
           <code>15 14 0 2 1 0</code>
           <button type="button" data-gpio-pin="1" data-gpio-level="0">Send</button>
@@ -146,6 +159,7 @@
           <code>15 14 0 2 1 1</code>
           <button class="secondary" type="button" data-gpio-pin="1" data-gpio-level="1">Send</button>
         </div>
+        <div class="signal-cell">CRX</div>
         <div class="command-cell">
           <code>15 14 0 2 2 1</code>
           <button type="button" data-gpio-pin="2" data-gpio-level="1">Send</button>
@@ -162,11 +176,11 @@
       <div class="compact-grid">
         <div class="mode-card">
           <p>Main antenna</p>
-          <div class="command-row"><code>15 14 0 2 3 0</code><button type="button" data-gpio-pin="3" data-gpio-level="0">Send</button></div>
+          <div class="command-row"><span class="signal-pill">ANT_SEL</span><code>15 14 0 2 3 0</code><button type="button" data-gpio-pin="3" data-gpio-level="0">Send</button></div>
         </div>
         <div class="mode-card">
           <p>Secondary antenna</p>
-          <div class="command-row"><code>15 14 0 2 3 1</code><button class="secondary" type="button" data-gpio-pin="3" data-gpio-level="1">Send</button></div>
+          <div class="command-row"><span class="signal-pill">ANT_SEL</span><code>15 14 0 2 3 1</code><button class="secondary" type="button" data-gpio-pin="3" data-gpio-level="1">Send</button></div>
         </div>
       </div>
     </section>
