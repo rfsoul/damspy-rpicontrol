@@ -141,6 +141,9 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("name=\"antenna\"", body)
         self.assertIn("Start RF (Full)", body)
         self.assertIn("Start RF Only", body)
+        self.assertLess(body.index("Start RF Only"), body.index("Start RF (Full)"))
+        self.assertEqual(body.count("value=\"40\""), 2)
+        self.assertEqual(body.count("value=\"10\""), 2)
 
     def test_tx_page_uses_tx_specific_template(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
