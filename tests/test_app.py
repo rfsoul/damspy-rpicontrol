@@ -146,6 +146,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/static/rxcc/GPIO-ports.png", body)
         self.assertIn("/static/rxcc/sky66112-mode-table.png", body)
         self.assertIn("/static/rxcc/antenna-paths.png", body)
+        self.assertLess(body.index("/static/rxcc/GPIO-ports.png"), body.index("/static/rxcc/antenna-paths.png"))
+        self.assertLess(body.index("/static/rxcc/antenna-paths.png"), body.index("/static/rxcc/sky66112-mode-table.png"))
         self.assertIn("data-gpio-pin=\"0\"", body)
         self.assertIn("data-gpio-pin=\"3\"", body)
         self.assertIn("name=\"antenna\"", body)

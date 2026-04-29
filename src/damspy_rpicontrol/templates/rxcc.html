@@ -15,7 +15,8 @@
     .guide-panel summary { cursor: pointer; font-weight: 700; font-size: 1.05rem; }
     .guide-panel[open] summary { margin-bottom: 1rem; }
     .guide-content > p { margin-top: 0; }
-    .guide-columns, .guide-figures { display: grid; gap: 0.85rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .guide-columns { display: grid; gap: 0.85rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .guide-figures { display: grid; gap: 0.85rem; grid-template-columns: 1fr; }
     .guide-card, .guide-figure { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.9rem; background: #f8fafc; }
     .guide-card h3, .guide-figure figcaption { margin: 0 0 0.6rem; }
     .guide-card ul { margin: 0; padding-left: 1.2rem; }
@@ -47,7 +48,7 @@
     .compact-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .signal-pill { font-weight: 700; color: #0f172a; min-width: 5.5rem; }
     @media (max-width: 800px) {
-      .guide-columns, .guide-figures,
+      .guide-columns,
       .compact-grid { grid-template-columns: 1fr; }
       .command-cell { align-items: flex-start; }
     }

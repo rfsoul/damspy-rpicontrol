@@ -483,16 +483,16 @@ def _render_rxcc_guide() -> str:
             "Add `static/rxcc/GPIO-ports.png` to show the port mapping figure.",
         ),
         (
-            "SKY FEM mode table",
-            "/static/rxcc/sky66112-mode-table.png",
-            "Reference truth table for the SKY front-end module control lines.",
-            "Add `static/rxcc/sky66112-mode-table.png` to show the FEM mode table.",
-        ),
-        (
             "Antenna paths",
             "/static/rxcc/antenna-paths.png",
             "Primary and secondary antenna routing, including `ANT_SEL`.",
             "Add `static/rxcc/antenna-paths.png` to show the antenna-path schematic.",
+        ),
+        (
+            "SKY FEM mode table",
+            "/static/rxcc/sky66112-mode-table.png",
+            "Reference truth table for the SKY front-end module control lines.",
+            "Add `static/rxcc/sky66112-mode-table.png` to show the FEM mode table.",
         ),
     ]
 
