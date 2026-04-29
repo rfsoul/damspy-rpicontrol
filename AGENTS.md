@@ -1,183 +1,78 @@
 # AGENTS.md
 
-This repository follows a **Prompt-Driven Development workflow**.
+This repository controls real hardware from a Raspberry Pi.
 
----
+The codebase is mature enough that agents should prefer narrow, practical
+changes over large process-driven rewrites.
 
-# Prompt-ID Rule
+## Working Style
 
-If a prompt contains a line of the form:
+Make the smallest useful change.
 
-Prompt-ID: <value>
+Do not introduce new architecture, documentation structure, CI, test framework,
+or repository process unless explicitly asked.
 
-`<value>` may be any non-empty string (for example: `Prompt-ID: onboarding-v2`, `Prompt-ID: abc123`, or `Prompt-ID: 42`).
+Do not perform broad refactors while changing device-control behaviour.
 
-Placeholder substitution rule
+When modifying code, explain:
+- what changed
+- which command path is affected
+- whether real-device testing is required
 
-Before executing a command or interpreting a task, the agent must resolve any supported placeholder tokens found in the instruction text.
+## Hardware-Control Changes
 
-Supported placeholders:
-- `reponame` → resolve as `cwdname`
-- `cwdname` → the final path component of the current working directory
+Treat these as hardware-control changes:
+- HID bytes or payload construction
+- report IDs
+- VID/PID selection
+- hidraw/device discovery
+- command timing
+- response parsing
+- device mode changes
 
-If `reponame` appears, the agent must treat it as an alias for `cwdname`.
+For hardware-control changes:
+- show the relevant changed bytes or payloads where practical
+- do not claim automated checks prove real hardware behaviour
+- provide a simple Raspberry Pi test command or manual test step
+- clearly state what terminal output or device behaviour to look for
 
-If the current working directory name cannot be resolved confidently, the placeholder should be omitted rather than guessed.
+## Validation
 
-Then the agent must:
+Run lightweight checks if they already exist and are quick.
 
-1. Determine the current **base PR number** of the repository.
-2. Determine the **base short commit SHA**.
-3. Include the **Prompt-ID value**, **Base-PR**, and **Base-SHA** in:
-   - the Codex output
-   - the Pull Request description
+Do not add, expand, or require CI unless explicitly asked.
 
-Include `CWD-Name` only when it was successfully resolved.
+Do not require real hardware for automated tests.
 
-Required output fields:
+If hardware validation is needed, say so plainly and leave that test to the
+human operator.
 
-Prompt-ID: <value>
-Base-PR: <value>
-Base-SHA: <short_sha>
+## Repository Context
 
-Optional output field:
+Only read extra documentation when it is directly relevant to the requested
+change.
 
-CWD-Name: <cwdname>
+Avoid editing docs unless the user specifically asks for documentation changes.
 
----
+## Commit Message
 
-# Repository Context
+When changes are complete, provide a suggested git commit message.
 
-When additional repository context is required, read the repository file:
+The commit message should include:
+- a concise subject line
+- a short body explaining what changed
+- any hardware validation still required
 
-doc_map.md
+For hardware-control changes, mention the affected device or command path.
 
-to determine which documents are relevant.
+Example:
 
-If the prompt explicitly instructs the agent to read specific files, follow the prompt instructions instead.
+```text
+Print Hendrix TX HID response bytes
 
----
+Update the Hendrix TX send path to read and print any response bytes after
+writing a HID report. This makes Pi-side hardware testing easier when checking
+whether the device acknowledges a command.
 
-# Documentation Structure
-
-Documentation files contain two sections:
-
-Content
-Editing Guidelines
-
-Agents should normally **modify only the Content section**.
-
-Editing Guidelines should not be modified unless explicitly instructed.
-
----
-
-# Validation Policy
-
-Changes fall into two categories.
-
-## Documentation Changes
-
-Documentation-only changes include:
-
-* `README.md`
-* files under `docs/`
-* `*.md`
-* architecture documents
-* planning documents
-
-For documentation-only changes:
-
-* CI validation is **not required**
-* A Pull Request may be created directly.
-
----
-
-## Source Code Changes
-
-Source code changes include modifications to:
-
-* `src/`
-* `app/`
-* `api/`
-* `lib/`
-* `components/`
-* `package.json`
-* `tsconfig.json`
-* build scripts
-* runtime configuration
-* any executable code
-
-If source code is modified, repository validation **must be run before creating a Pull Request**.
-
----
-
-# Validation Command
-
-The validation command for this repository is:
-
-make ci
-
-Agents must run this command before opening any Pull Request that modifies source code.
-
-Validation typically performs:
-
-* dependency installation
-* type checking
-* linting
-* automated tests
-* build verification
-
-All failures must be fixed before submitting a Pull Request.
-
----
-
-# CI Requirement
-
-If source code changes are requested but repository validation cannot be executed because:
-
-* a `Makefile` does not exist
-* the `ci` target is missing
-* validation scripts are not configured
-* required tooling is unavailable
-
-then **do not create the Pull Request**.
-
-Instead return the following message:
-
-You have asked me to change source code, but CI validation is not configured for this repository.
-
-This repository must define a validation command:
-
-make ci
-
-Please add CI configuration before code changes can be safely merged.
-
----
-
-# Pull Request Rule
-
-Before creating a Pull Request that modifies source code:
-
-1. Run `make ci`
-2. Confirm validation passes
-3. Only then open the Pull Request.
-
-Pull Requests must not be created if validation fails.
-
----
-
-# Principle
-
-Prefer the **minimum validation required for the change type**:
-
-* documentation changes → no CI required
-* source code changes → CI validation required
-
-# Agent Command Dispatch
-
-If a prompt consists solely of a single keyword, the agent should check
-`docs/agent_commands.md` to determine whether that keyword is a defined
-repository command.
-
-If the prompt is not a single keyword, do not read this document.
-
+Hardware validation is still required on the Raspberry Pi with the Hendrix TX
+connected.
