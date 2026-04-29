@@ -122,6 +122,16 @@ class RxccDeviceTest(unittest.TestCase):
         )
         self.assertTrue(factory.devices[0].closed)
 
+    def test_start_rf_raw_sends_single_start_report(self) -> None:
+        factory = DeviceFactory()
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        reports_sent = controller.start_rf_raw(channel=10, power=5)
+
+        self.assertEqual(reports_sent, 1)
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
+        self.assertTrue(factory.devices[0].closed)
+
     def test_apply_gpio_records_device_response_when_present(self) -> None:
         factory = DeviceFactory(reads=[bytes([0xAA, 0x55])])
         controller = RxccController(device_factory=factory, backend_name="test")

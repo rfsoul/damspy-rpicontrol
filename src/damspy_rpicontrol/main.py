@@ -167,6 +167,33 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             ),
         )
 
+    @app.post("/api/rf/start/rxcc/raw", response_model=OperationResponse)
+    def start_rf_rxcc_raw(
+        payload: DeviceCommandRequest,
+        request: Request,
+    ) -> OperationResponse:
+        if payload.channel is None or payload.power is None:
+            raise HTTPException(
+                status_code=422,
+                detail="`channel` and `power` are required for raw RXCC RF start.",
+            )
+
+        controller = request.app.state.controller
+        try:
+            reports_sent = controller.start_rf_raw(channel=payload.channel, power=payload.power)
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="start_rf_raw",
+            detail=f"Sent raw RXCC RF start on channel {payload.channel} at power {payload.power}.",
+            reports_sent=reports_sent,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
     @app.post("/api/healthcheck", response_model=HealthcheckResponse)
     def run_healthcheck() -> HealthcheckResponse:
         result = subprocess.run(

@@ -143,6 +143,9 @@ class RxccController:
         ]
         return self._execute(reports)
 
+    def start_rf_raw(self, channel: int, power: int) -> int:
+        return self._execute([build_rf_start_report(channel=channel, power=power)])
+
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
 

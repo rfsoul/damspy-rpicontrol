@@ -3,15 +3,18 @@ import unittest
 from fastapi import Request
 
 from damspy_rpicontrol.main import create_app
-from damspy_rpicontrol.models import AntennaRequest, FrontendMode, FrontendModeRequest, StartRfRequest
+from damspy_rpicontrol.models import AntennaRequest, DeviceCommandRequest, FrontendMode, FrontendModeRequest, StartRfRequest
 from damspy_rpicontrol.rxcc_device import RxccController
 
 
 class StubHendrixController:
-    def __init__(self, battery_mv: int = 3775) -> None:
+    def __init__(self, battery_mv: int = 3775, command_response: bytes | None = None) -> None:
         self.battery_mv = battery_mv
+        self.command_response = command_response
         self.ctx_high: bool | None = None
         self.flash_color_index: int | None = None
+        self.rf_start_args: tuple[int, int] | None = None
+        self.stop_rf_called = False
         self.last_written_reports: list[bytes] = []
         self.last_response: bytes | None = None
 
@@ -28,7 +31,19 @@ class StubHendrixController:
         self.last_written_reports = [
             bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01 if high else 0x00])
         ]
-        self.last_response = None
+        self.last_response = self.command_response
+        return 1
+
+    def start_rf(self, channel: int, power: int) -> int:
+        self.rf_start_args = (channel, power)
+        self.last_written_reports = [bytes([0x0F, 0x03, 0x00, channel, 0x00, power])]
+        self.last_response = self.command_response
+        return 1
+
+    def stop_rf(self) -> int:
+        self.stop_rf_called = True
+        self.last_written_reports = [bytes([0x0F, 0x0D, 0x00])]
+        self.last_response = self.command_response
         return 1
 
     def flash_led(self, color_index: int) -> int:
@@ -99,6 +114,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/antenna", route_paths)
         self.assertIn("/api/rxcc/gpio/{pin}/{level}", route_paths)
         self.assertIn("/api/rf/start", route_paths)
+        self.assertIn("/api/rf/start/rxcc/raw", route_paths)
         self.assertIn("/api/rf/stop", route_paths)
         self.assertIn("/api/rf/stop/{device_type}", route_paths)
         self.assertIn("/api/battery/{device_type}", route_paths)
@@ -117,12 +133,14 @@ class AppStructureTest(unittest.TestCase):
         body = response.body.decode("utf-8")
         self.assertIn("RODE RXCC 008C", body)
         self.assertIn("Devices:", body)
-        self.assertIn("Transmitting-PA mode", body)
-        self.assertIn("Bypass mode", body)
-        self.assertIn("Receiving mode", body)
+        self.assertIn("Transmitting PA Mode", body)
+        self.assertIn("Bypass Mode", body)
+        self.assertIn("Receiving Mode", body)
         self.assertIn("data-gpio-pin=\"0\"", body)
         self.assertIn("data-gpio-pin=\"3\"", body)
         self.assertIn("name=\"antenna\"", body)
+        self.assertIn("Start RF (Full)", body)
+        self.assertIn("Start RF Only", body)
 
     def test_tx_page_uses_tx_specific_template(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -214,6 +232,19 @@ class AppStructureTest(unittest.TestCase):
         )
         self.assertTrue(response.read_attempted)
 
+    def test_rxcc_raw_start_rf_endpoint_sends_only_start_report(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        raw_start_route = next(route for route in app.routes if route.path == "/api/rf/start/rxcc/raw")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start/rxcc/raw"})
+
+        response = raw_start_route.endpoint(DeviceCommandRequest(channel=10, power=5), request)
+
+        self.assertEqual(response.command_sent, ["15 3 0 10 0 5"])
+        self.assertEqual(response.detail, "Sent raw RXCC RF start on channel 10 at power 5.")
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
+        self.assertTrue(response.read_attempted)
+
     def test_rxcc_gpio_endpoint_returns_device_response(self) -> None:
         factory = RxccDeviceFactory(reads=[bytes([0xA5, 0x5A])])
         app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
@@ -269,6 +300,47 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.command_sent, ["15 14 0 2 0 1"])
         self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.ctx_high, True)
+
+    def test_rx_ctx_endpoint_returns_device_response_when_present(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController(command_response=bytes([0x10, 0xAA, 0x55]))
+        app.state.rx_controller = stub_controller
+        ctx_route = next(route for route in app.routes if route.path == "/api/ctx/{device_type}/{level}")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/ctx/rx/high"})
+
+        response = ctx_route.endpoint("rx", "high", request)
+
+        self.assertEqual(response.command_sent, ["15 14 0 2 0 1"])
+        self.assertEqual(response.device_response, "16 170 85")
+        self.assertTrue(response.read_attempted)
+
+    def test_rx_start_rf_endpoint_returns_device_response_when_present(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController(command_response=bytes([0x10, 0xAA, 0x55]))
+        app.state.rx_controller = stub_controller
+        start_route = next(route for route in app.routes if route.path == "/api/rf/start")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start"})
+
+        response = start_route.endpoint(StartRfRequest(device="rx", channel=10, power=5), request)
+
+        self.assertEqual(stub_controller.rf_start_args, (10, 5))
+        self.assertEqual(response.command_sent, ["15 3 0 10 0 5"])
+        self.assertEqual(response.device_response, "16 170 85")
+        self.assertTrue(response.read_attempted)
+
+    def test_rx_stop_rf_endpoint_returns_device_response_when_present(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController(command_response=bytes([0x10, 0xAA, 0x55]))
+        app.state.rx_controller = stub_controller
+        stop_route = next(route for route in app.routes if route.path == "/api/rf/stop/{device_type}")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/stop/rx"})
+
+        response = stop_route.endpoint("rx", request)
+
+        self.assertTrue(stub_controller.stop_rf_called)
+        self.assertEqual(response.command_sent, ["15 13 0"])
+        self.assertEqual(response.device_response, "16 170 85")
+        self.assertTrue(response.read_attempted)
 
     def test_tx_led_flash_endpoint_sends_red_flash_sequence(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
