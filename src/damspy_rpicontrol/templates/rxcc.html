@@ -12,6 +12,16 @@
     .device-nav { font-size: 0.95rem; margin: 0.6rem 0 0.8rem; }
     .device-nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
     h1, h2 { margin-top: 0; }
+    .guide-panel summary { cursor: pointer; font-weight: 700; font-size: 1.05rem; }
+    .guide-panel[open] summary { margin-bottom: 1rem; }
+    .guide-content > p { margin-top: 0; }
+    .guide-columns, .guide-figures { display: grid; gap: 0.85rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .guide-card, .guide-figure { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.9rem; background: #f8fafc; }
+    .guide-card h3, .guide-figure figcaption { margin: 0 0 0.6rem; }
+    .guide-card ul { margin: 0; padding-left: 1.2rem; }
+    .guide-figure { margin: 0; }
+    .guide-figure img { width: 100%; display: block; border-radius: 8px; background: #ffffff; border: 1px solid #e2e8f0; }
+    .guide-missing { color: #475569; font-size: 0.95rem; }
     form { display: grid; gap: 0.75rem; }
     label { display: grid; gap: 0.35rem; font-weight: 600; }
     select, input, button { font: inherit; padding: 0.7rem 0.8rem; border-radius: 8px; border: 1px solid #cbd5e1; }
@@ -37,6 +47,7 @@
     .compact-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .signal-pill { font-weight: 700; color: #0f172a; min-width: 5.5rem; }
     @media (max-width: 800px) {
+      .guide-columns, .guide-figures,
       .compact-grid { grid-template-columns: 1fr; }
       .command-cell { align-items: flex-start; }
     }
@@ -56,6 +67,8 @@
         <span id="health-led" class="health-led" aria-label="Health status indicator"></span>
       </div>
     </section>
+
+    __RXCC_GUIDE__
 
     <section>
       <h2>Transmitting PA Mode</h2>

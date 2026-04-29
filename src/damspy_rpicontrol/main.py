@@ -7,6 +7,7 @@ from typing import Sequence
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from damspy_rpicontrol.models import (
     AntennaRequest,
@@ -34,6 +35,7 @@ from damspy_rpicontrol.rxcc_device import (
 )
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 HEALTHCHECK_SCRIPT_PATH = Path(__file__).resolve().parent / "healthcheck.py"
 SUPPORTED_WEB_DEVICES: dict[str, str] = {
     "rxcc": "RODE RXCC 008C",
@@ -71,6 +73,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         summary="LAN-local FastAPI service for RODE RXCC control.",
         version="0.1.0",
     )
+    app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
     app.state.controller = controller or RxccController()
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
@@ -102,6 +105,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
         html = (TEMPLATE_DIR / DEVICE_TEMPLATE_FILES[device_type]).read_text(encoding="utf-8")
         html = html.replace("__DEVICE_NAV__", " · ".join(nav_links))
+        if device_type == DeviceType.RXCC.value:
+            html = html.replace("__RXCC_GUIDE__", _render_rxcc_guide())
         return HTMLResponse(html)
 
     @app.post("/api/frontend/mode", response_model=OperationResponse)
@@ -467,6 +472,78 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         )
 
     return app
+
+
+def _render_rxcc_guide() -> str:
+    figures = [
+        (
+            "Port mapping",
+            "/static/rxcc/GPIO-ports.png",
+            "Pins of interest from the RXCC schematic. This maps the software pin number to the named control line.",
+            "Add `static/rxcc/GPIO-ports.png` to show the port mapping figure.",
+        ),
+        (
+            "SKY FEM mode table",
+            "/static/rxcc/sky66112-mode-table.png",
+            "Reference truth table for the SKY front-end module control lines.",
+            "Add `static/rxcc/sky66112-mode-table.png` to show the FEM mode table.",
+        ),
+        (
+            "Antenna paths",
+            "/static/rxcc/antenna-paths.png",
+            "Primary and secondary antenna routing, including `ANT_SEL`.",
+            "Add `static/rxcc/antenna-paths.png` to show the antenna-path schematic.",
+        ),
+    ]
+
+    figure_markup: list[str] = []
+    for heading, src, caption, fallback in figures:
+        figure_markup.append(
+            "\n".join(
+                [
+                    "<figure class='guide-figure'>",
+                    f"  <figcaption><strong>{heading}</strong> {caption}</figcaption>",
+                    f"  <img src='{src}' alt='{heading}' onerror=\"this.hidden=true; this.nextElementSibling.hidden=false;\">",
+                    f"  <div class='guide-missing' hidden>{fallback}</div>",
+                    "</figure>",
+                ]
+            )
+        )
+
+    return "\n".join(
+        [
+            "<section>",
+            "  <details class='guide-panel'>",
+            "    <summary>RXCC GPIO Guide: ports, pins, and mode presets</summary>",
+            "    <div class='guide-content'>",
+            "      <p><strong>Command format:</strong> <code>15 14 0 2 pin level</code>. Each command writes one GPIO line; the named modes are presets built from the combined states of multiple GPIOs.</p>",
+            "      <div class='guide-columns'>",
+            "        <div class='guide-card'>",
+            "          <h3>Pin Map</h3>",
+            "          <ul>",
+            "            <li><code>pin 0</code> = <code>CTX</code></li>",
+            "            <li><code>pin 1</code> = <code>CPS</code></li>",
+            "            <li><code>pin 2</code> = <code>CRX</code></li>",
+            "            <li><code>pin 3</code> = <code>ANT_SEL</code></li>",
+            "          </ul>",
+            "        </div>",
+            "        <div class='guide-card'>",
+            "          <h3>Mode Presets</h3>",
+            "          <ul>",
+            "            <li><strong>Transmitting PA:</strong> <code>CTX=1</code>, <code>CPS=0</code>, <code>CRX=0</code></li>",
+            "            <li><strong>Bypass:</strong> <code>CTX=0</code>, <code>CPS=1</code>, <code>CRX=0</code></li>",
+            "            <li><strong>Receiving:</strong> <code>CTX=0</code>, <code>CPS=0</code>, <code>CRX=1</code></li>",
+            "          </ul>",
+            "        </div>",
+            "      </div>",
+            "      <div class='guide-figures'>",
+            *figure_markup,
+            "      </div>",
+            "    </div>",
+            "  </details>",
+            "</section>",
+        ]
+    )
 
 
 def _translate_device_error(exc: Exception) -> HTTPException:
