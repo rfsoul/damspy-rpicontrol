@@ -77,6 +77,10 @@ class BatteryResponse(BaseModel):
     detail: str
     device: DeviceType
     battery_mv: int
+    temperature_c: int
+    charge_state: str
+    charge_state_code: int
+    charge_current_ma: int
     reports_sent: int = 1
     command_sent: list[str] = Field(default_factory=list)
     device_response: str | None = None

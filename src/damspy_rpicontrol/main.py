@@ -231,7 +231,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             else request.app.state.rx_controller
         )
         try:
-            battery_mv, _ = controller.read_battery_info()
+            battery_info = controller.read_battery_info()
         except (
             HendrixDeviceUnavailableError,
             HendrixDeviceCommunicationError,
@@ -240,9 +240,13 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
         return BatteryResponse(
-            detail=f"Read battery voltage for `{resolved_device_type.value}`.",
+            detail=f"Read battery telemetry for `{resolved_device_type.value}`.",
             device=resolved_device_type,
-            battery_mv=battery_mv,
+            battery_mv=battery_info.battery_mv,
+            temperature_c=battery_info.temperature_c,
+            charge_state=battery_info.charge_state,
+            charge_state_code=battery_info.charge_state_code,
+            charge_current_ma=battery_info.charge_current_ma,
             command_sent=command_sent,
             device_response=device_response,
             read_attempted=True,

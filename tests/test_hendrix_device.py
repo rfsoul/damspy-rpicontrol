@@ -3,6 +3,7 @@ import unittest.mock
 from unittest.mock import patch
 
 from damspy_rpicontrol.hendrix_device import (
+    BatteryInfo,
     DeviceCommunicationError,
     HendrixController,
     build_battery_info_request,
@@ -85,10 +86,21 @@ class HendrixDeviceTest(unittest.TestCase):
             bytes([0x01, 0x61] + [0x00] * 15),
         )
 
-    def test_parse_battery_response_reads_little_endian_millivolts(self) -> None:
-        battery_mv = parse_battery_info_response(bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E]))
+    def test_parse_battery_response_reads_documented_fields(self) -> None:
+        battery_info = parse_battery_info_response(
+            bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])
+        )
 
-        self.assertEqual(battery_mv, 3775)
+        self.assertEqual(
+            battery_info,
+            BatteryInfo(
+                battery_mv=3775,
+                temperature_c=26,
+                charge_state_code=1,
+                charge_current_ma=300,
+            ),
+        )
+        self.assertEqual(battery_info.charge_state, "0x01")
 
     def test_start_rf_sends_single_start_report(self) -> None:
         factory = DeviceFactory()
@@ -203,12 +215,15 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertTrue(factory.devices[0].closed)
 
     def test_read_battery_writes_request_then_parses_response(self) -> None:
-        factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E])])
+        factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])])
         controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
 
-        battery_mv = controller.read_battery_mv()
+        battery_info = controller.read_battery_info()
 
-        self.assertEqual(battery_mv, 3775)
+        self.assertEqual(battery_info.battery_mv, 3775)
+        self.assertEqual(battery_info.temperature_c, 26)
+        self.assertEqual(battery_info.charge_state_code, 1)
+        self.assertEqual(battery_info.charge_current_ma, 300)
         self.assertEqual(factory.devices[0].writes, [bytes([0x01, 0x61] + [0x00] * 15)])
         self.assertTrue(factory.devices[0].closed)
 

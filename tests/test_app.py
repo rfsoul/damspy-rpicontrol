@@ -10,6 +10,10 @@ from damspy_rpicontrol.rxcc_device import RxccController
 class StubHendrixController:
     def __init__(self, battery_mv: int = 3775, command_response: bytes | None = None) -> None:
         self.battery_mv = battery_mv
+        self.temperature_c = 26
+        self.charge_state = "0x01"
+        self.charge_state_code = 1
+        self.charge_current_ma = 300
         self.command_response = command_response
         self.ctx_high: bool | None = None
         self.flash_color_index: int | None = None
@@ -21,10 +25,20 @@ class StubHendrixController:
     def read_battery_mv(self) -> int:
         return self.battery_mv
 
-    def read_battery_info(self) -> tuple[int, bytes]:
+    def read_battery_info(self):
         self.last_written_reports = [bytes([0x01, 0x61] + [0x00] * 15)]
-        self.last_response = bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E])
-        return self.battery_mv, self.last_response
+        self.last_response = bytes([0x02, 0x61, ord("A"), 0xE4, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])
+        return type(
+            "StubBatteryInfo",
+            (),
+            {
+                "battery_mv": self.battery_mv,
+                "temperature_c": self.temperature_c,
+                "charge_state": self.charge_state,
+                "charge_state_code": self.charge_state_code,
+                "charge_current_ma": self.charge_current_ma,
+            },
+        )()
 
     def set_ctx(self, high: bool) -> int:
         self.ctx_high = high
@@ -169,6 +183,9 @@ class AppStructureTest(unittest.TestCase):
         self.assertNotIn("Antenna Path", body)
         self.assertNotIn("name=\"antenna\"", body)
         self.assertIn("Battery Voltage (mV)", body)
+        self.assertIn("Temperature (C)", body)
+        self.assertIn("Charge State", body)
+        self.assertIn("Charge Current (mA)", body)
         self.assertIn("Read Battery", body)
         self.assertIn("CTX LOW", body)
         self.assertIn("CTX HIGH", body)
@@ -282,9 +299,13 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.device.value, "tx")
         self.assertEqual(response.battery_mv, 3812)
+        self.assertEqual(response.temperature_c, 26)
+        self.assertEqual(response.charge_state, "0x01")
+        self.assertEqual(response.charge_state_code, 1)
+        self.assertEqual(response.charge_current_ma, 300)
         self.assertEqual(response.reports_sent, 1)
         self.assertEqual(response.command_sent, ["1 97 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
-        self.assertEqual(response.device_response, "2 97 65 191 14")
+        self.assertEqual(response.device_response, "2 97 65 228 14 100 0 26 0 1 44 1")
 
     def test_tx_ctx_endpoint_sends_requested_level(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

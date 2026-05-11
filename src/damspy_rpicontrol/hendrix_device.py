@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 import threading
 import time
 from typing import Callable, Iterator, Protocol, Sequence
@@ -16,7 +17,7 @@ BATTERY_RESPONSE_REPORT_ID = 0x02
 BATTERY_COMMAND_ID = 0x61
 BATTERY_STATUS_OK = ord("A")
 BATTERY_REQUEST_LENGTH = 17
-BATTERY_RESPONSE_MIN_LENGTH = 5
+BATTERY_RESPONSE_MIN_LENGTH = 12
 BATTERY_READ_TIMEOUT_MS = 1000
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
@@ -38,6 +39,18 @@ class DeviceUnavailableError(RuntimeError):
 
 class DeviceCommunicationError(RuntimeError):
     """Raised when HID I/O fails."""
+
+
+@dataclass(frozen=True)
+class BatteryInfo:
+    battery_mv: int
+    temperature_c: int
+    charge_state_code: int
+    charge_current_ma: int
+
+    @property
+    def charge_state(self) -> str:
+        return f"0x{self.charge_state_code:02X}"
 
 
 class HidDevice(Protocol):
@@ -112,7 +125,7 @@ def build_battery_info_request() -> bytes:
     return bytes([BATTERY_REQUEST_REPORT_ID, BATTERY_COMMAND_ID] + [0x00] * (BATTERY_REQUEST_LENGTH - 2))
 
 
-def parse_battery_info_response(data: bytes | Sequence[int]) -> int:
+def parse_battery_info_response(data: bytes | Sequence[int]) -> BatteryInfo:
     response = bytes(data)
     if len(response) < BATTERY_RESPONSE_MIN_LENGTH:
         raise DeviceCommunicationError(
@@ -130,7 +143,12 @@ def parse_battery_info_response(data: bytes | Sequence[int]) -> int:
         raise DeviceCommunicationError(
             f"Battery response status was 0x{response[2]:02X}; expected 0x{BATTERY_STATUS_OK:02X}."
         )
-    return response[3] | (response[4] << 8)
+    return BatteryInfo(
+        battery_mv=response[3] | (response[4] << 8),
+        temperature_c=response[7] | (response[8] << 8),
+        charge_state_code=response[9],
+        charge_current_ma=response[10] | (response[11] << 8),
+    )
 
 
 class HendrixController:
@@ -182,10 +200,9 @@ class HendrixController:
         return self._execute(build_led_off_reports())
 
     def read_battery_mv(self) -> int:
-        battery_mv, _ = self.read_battery_info()
-        return battery_mv
+        return self.read_battery_info().battery_mv
 
-    def read_battery_info(self) -> tuple[int, bytes]:
+    def read_battery_info(self) -> BatteryInfo:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
@@ -257,8 +274,7 @@ class HendrixController:
         return reports_sent
 
     def _read_battery_mv(self, device: HidDevice) -> int:
-        battery_mv, _ = self._read_battery_info(device)
-        return battery_mv
+        return self._read_battery_info(device).battery_mv
 
     def _read_command_response(self, device: HidDevice) -> bytes | None:
         deadline = time.monotonic() + (COMMAND_READ_TIMEOUT_MS / 1000)
@@ -282,7 +298,7 @@ class HendrixController:
 
             time.sleep(COMMAND_READ_POLL_INTERVAL_S)
 
-    def _read_battery_info(self, device: HidDevice) -> tuple[int, bytes]:
+    def _read_battery_info(self, device: HidDevice) -> BatteryInfo:
         try:
             response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
         except Exception as exc:
@@ -296,7 +312,7 @@ class HendrixController:
 
         response_bytes = bytes(response)
         self._last_response = response_bytes
-        return parse_battery_info_response(response_bytes), response_bytes
+        return parse_battery_info_response(response_bytes)
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []

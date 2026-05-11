@@ -65,6 +65,9 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color
 <h2>Battery</h2>
 <form id="battery-form">
 <label>Battery Voltage (mV)<input id="battery-mv" name="battery_mv" type="number" inputmode="numeric" readonly placeholder="Not read yet"></label>
+<label>Temperature (C)<input id="battery-temperature-c" name="temperature_c" type="number" inputmode="numeric" readonly placeholder="Not read yet"></label>
+<label>Charge State<input id="battery-charge-state" name="charge_state" type="text" readonly placeholder="Not read yet"></label>
+<label>Charge Current (mA)<input id="battery-charge-current-ma" name="charge_current_ma" type="number" inputmode="numeric" readonly placeholder="Not read yet"></label>
 <button id="read-battery" type="submit">Read Battery</button>
 </form>
 </section>
@@ -82,6 +85,9 @@ const currentDevice="tx";
 const output=document.getElementById("output");
 const healthLed=document.getElementById("health-led");
 const batteryMvField=document.getElementById("battery-mv");
+const batteryTemperatureField=document.getElementById("battery-temperature-c");
+const batteryChargeStateField=document.getElementById("battery-charge-state");
+const batteryChargeCurrentField=document.getElementById("battery-charge-current-ma");
 const flashButtons={
 red:document.getElementById("flash-led-red"),
 green:document.getElementById("flash-led-green")
@@ -94,7 +100,7 @@ const LED_RETRY_DELAY_MS=500;
 
 function setHealthLed(state){healthLed.classList.remove("pass","fail"),"pass"===state?healthLed.classList.add("pass"):"fail"===state&&healthLed.classList.add("fail")}
 
-function writeResult(title,payload){const lines=[title];payload.detail&&lines.push(`Detail: ${payload.detail}`),Array.isArray(payload.command_sent)&&payload.command_sent.length&&(lines.push("Bytes written:"),lines.push(...payload.command_sent)),Object.prototype.hasOwnProperty.call(payload,"device_response")&&(lines.push("Bytes read:"),lines.push(payload.device_response||(payload.read_attempted?"(no bytes returned)":"(no read attempted)"))),"battery_mv"in payload&&lines.push(`Battery mV: ${payload.battery_mv}`),1===lines.length&&lines.push(JSON.stringify(payload,null,2)),output.textContent=lines.join("\n")}
+function writeResult(title,payload){const lines=[title];payload.detail&&lines.push(`Detail: ${payload.detail}`),Array.isArray(payload.command_sent)&&payload.command_sent.length&&(lines.push("Bytes written:"),lines.push(...payload.command_sent)),Object.prototype.hasOwnProperty.call(payload,"device_response")&&(lines.push("Bytes read:"),lines.push(payload.device_response||(payload.read_attempted?"(no bytes returned)":"(no read attempted)"))),"battery_mv"in payload&&lines.push(`Battery mV: ${payload.battery_mv}`),"temperature_c"in payload&&lines.push(`Temperature C: ${payload.temperature_c}`),"charge_state"in payload&&lines.push(`Charge State: ${payload.charge_state}`),"charge_current_ma"in payload&&lines.push(`Charge Current mA: ${payload.charge_current_ma}`),1===lines.length&&lines.push(JSON.stringify(payload,null,2)),output.textContent=lines.join("\n")}
 
 async function requestJson(endpoint,payload,method="POST"){const response=await fetch(endpoint,{method,headers:payload?{"Content-Type":"application/json"}:{},body:payload?JSON.stringify(payload):void 0});let body;try{body=await response.json()}catch(error){body={detail:"Response was not valid JSON."}}if(!response.ok)throw body;return body}
 
@@ -114,7 +120,7 @@ async function turnOffAllLeds(){stopFlashLoop();try{writeResult("Success",await 
 
 document.querySelectorAll("form[data-endpoint]").forEach(form=>{form.addEventListener("submit",async event=>{event.preventDefault();const payload=Object.fromEntries(new FormData(form).entries());"channel"in payload&&(payload.channel=Number(payload.channel)),"power"in payload&&(payload.power=Number(payload.power));try{writeResult("Success",await requestJson(form.dataset.endpoint,payload))}catch(error){writeResult("Error",error)}})});
 
-document.getElementById("battery-form").addEventListener("submit",async event=>{event.preventDefault();try{const payload=await requestJson(`/api/battery/${currentDevice}`);batteryMvField.value=String(payload.battery_mv),writeResult("Success",payload)}catch(error){batteryMvField.value="",writeResult("Error",error)}})
+document.getElementById("battery-form").addEventListener("submit",async event=>{event.preventDefault();try{const payload=await requestJson(`/api/battery/${currentDevice}`);batteryMvField.value=String(payload.battery_mv),batteryTemperatureField.value=String(payload.temperature_c),batteryChargeStateField.value=String(payload.charge_state),batteryChargeCurrentField.value=String(payload.charge_current_ma),writeResult("Success",payload)}catch(error){batteryMvField.value="",batteryTemperatureField.value="",batteryChargeStateField.value="",batteryChargeCurrentField.value="",writeResult("Error",error)}})
 
 bindAction("ctx-low",`/api/ctx/${currentDevice}/low`);
 bindAction("ctx-high",`/api/ctx/${currentDevice}/high`);
