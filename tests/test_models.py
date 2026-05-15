@@ -20,6 +20,12 @@ class StartRfRequestTest(unittest.TestCase):
         self.assertEqual(request.channel, 80)
         self.assertEqual(request.power, 10)
 
+    def test_accepts_wireless_pro_rx_device(self) -> None:
+        request = StartRfRequest(device="wireless-pro-rx", antenna=AntennaPath.SECONDARY, channel=12, power=4)
+
+        self.assertEqual(request.device, "wireless-pro-rx")
+        self.assertEqual(request.antenna, AntennaPath.SECONDARY)
+
     def test_rejects_channel_above_documented_range(self) -> None:
         with self.assertRaises(ValidationError):
             StartRfRequest(device="tx", channel=81, power=5)
@@ -37,6 +43,7 @@ class StartRfRequestTest(unittest.TestCase):
         self.assertEqual(DeviceType.RXCC.value, "rxcc")
         self.assertEqual(DeviceType.TX.value, "tx")
         self.assertEqual(DeviceType.RX.value, "rx")
+        self.assertEqual(DeviceType.WIRELESS_PRO_RX.value, "wireless-pro-rx")
         self.assertEqual(DeviceCommand.START_RF.value, "start-rf")
         self.assertEqual(DeviceCommand.STOP_RF.value, "stop-rf")
 

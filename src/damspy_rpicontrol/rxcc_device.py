@@ -10,7 +10,8 @@ import importlib
 from damspy_rpicontrol.models import AntennaPath, FrontendMode
 
 VENDOR_ID = 0x19F7
-PRODUCT_ID = 0x008C
+RXCC_PRODUCT_ID = 0x008C
+WIRELESS_PRO_RX_PRODUCT_ID = 0x0058
 REPORT_ID = 0x0F
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
@@ -55,7 +56,7 @@ _ANTENNA_LEVELS: dict[AntennaPath, int] = {
 }
 
 
-def detect_hid_backend() -> tuple[DeviceFactory | None, str]:
+def detect_hid_backend(product_id: int = RXCC_PRODUCT_ID) -> tuple[DeviceFactory | None, str]:
     """
     Force the exact backend family that the known-good standalone scripts use:
     hidapi.Device(vendor_id=..., product_id=...)
@@ -66,7 +67,7 @@ def detect_hid_backend() -> tuple[DeviceFactory | None, str]:
         return None, "unavailable"
 
     return (
-        lambda: hidapi_module.Device(vendor_id=VENDOR_ID, product_id=PRODUCT_ID),
+        lambda: hidapi_module.Device(vendor_id=VENDOR_ID, product_id=product_id),
         "hidapi.Device",
     )
 
@@ -107,11 +108,13 @@ def antenna_reports(path: AntennaPath) -> list[bytes]:
 class RxccController:
     def __init__(
         self,
+        product_id: int = RXCC_PRODUCT_ID,
         device_factory: DeviceFactory | None = None,
         backend_name: str | None = None,
     ) -> None:
+        self.product_id = product_id
         if device_factory is None:
-            device_factory, detected_backend = detect_hid_backend()
+            device_factory, detected_backend = detect_hid_backend(product_id=product_id)
             self._device_factory = device_factory
             self.backend_name = backend_name or detected_backend
         else:

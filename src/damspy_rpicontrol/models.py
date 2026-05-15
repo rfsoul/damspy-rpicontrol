@@ -29,7 +29,7 @@ class AntennaRequest(BaseModel):
 class StartRfRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: str = Field(..., pattern="^(rxcc|tx|rx)$")
+    device: str = Field(..., pattern="^(rxcc|tx|rx|wireless-pro-rx)$")
     antenna: AntennaPath | None = None
     channel: int = Field(..., ge=0, le=80)
     power: int = Field(..., ge=0, le=10)
@@ -39,6 +39,7 @@ class DeviceType(str, Enum):
     RXCC = "rxcc"
     TX = "tx"
     RX = "rx"
+    WIRELESS_PRO_RX = "wireless-pro-rx"
 
 
 class DeviceCommand(str, Enum):

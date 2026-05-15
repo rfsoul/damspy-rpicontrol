@@ -127,8 +127,10 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/frontend/mode", route_paths)
         self.assertIn("/api/antenna", route_paths)
         self.assertIn("/api/rxcc/gpio/{pin}/{level}", route_paths)
+        self.assertIn("/api/wireless-pro-rx/gpio/{pin}/{level}", route_paths)
         self.assertIn("/api/rf/start", route_paths)
         self.assertIn("/api/rf/start/rxcc/raw", route_paths)
+        self.assertIn("/api/rf/start/wireless-pro-rx/raw", route_paths)
         self.assertIn("/api/rf/stop", route_paths)
         self.assertIn("/api/rf/stop/{device_type}", route_paths)
         self.assertIn("/api/battery/{device_type}", route_paths)
@@ -147,6 +149,7 @@ class AppStructureTest(unittest.TestCase):
         body = response.body.decode("utf-8")
         self.assertIn("RODE RXCC 008C", body)
         self.assertIn("Devices:", body)
+        self.assertIn("RODE Wireless PRO RX 0058", body)
         self.assertIn("RXCC GPIO Guide: ports, pins, and mode presets", body)
         self.assertIn("15 14 0 2 pin level", body)
         self.assertIn("Transmitting PA Mode", body)
@@ -204,6 +207,20 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("CTX LOW", body)
         self.assertIn("CTX HIGH", body)
         self.assertNotIn("Battery Voltage (mV)", body)
+
+    def test_wireless_pro_rx_page_uses_rxcc_style_template(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        device_route = next(route for route in app.routes if route.path == "/devices/{device_type}")
+        response = device_route.endpoint("wireless-pro-rx")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.body.decode("utf-8")
+        self.assertIn("RODE Wireless PRO RX 0058", body)
+        self.assertIn("<code>wireless pro rx</code>", body)
+        self.assertIn("19f7:0058", body)
+        self.assertIn("Main antenna", body)
+        self.assertIn("Secondary antenna", body)
+        self.assertIn("/api/rf/start/wireless-pro-rx/raw", body)
 
     def test_rxcc_frontend_mode_endpoint_formats_hendrix_command_byte(self) -> None:
         factory = RxccDeviceFactory()
@@ -287,6 +304,85 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.command_sent, ["15 14 0 2 0 1"])
         self.assertEqual(response.device_response, "165 90")
+        self.assertTrue(response.read_attempted)
+
+    def test_wireless_pro_rx_start_rf_endpoint_enforces_mode_then_antenna_then_start(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.wireless_pro_rx_controller = RxccController(device_factory=factory, backend_name="test")
+        start_route = next(route for route in app.routes if route.path == "/api/rf/start")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start"})
+
+        response = start_route.endpoint(
+            StartRfRequest(device="wireless-pro-rx", antenna="secondary", channel=10, power=5),
+            request,
+        )
+
+        self.assertEqual(
+            response.command_sent,
+            ["15 14 0 2 0 1", "15 14 0 2 1 0", "15 14 0 2 2 0", "15 14 0 2 3 1", "15 3 0 10 0 5"],
+        )
+        self.assertEqual(
+            response.detail,
+            "Applied transmitting-pa mode, selected `secondary` antenna, and started RF on channel 10 at power 5.",
+        )
+        self.assertEqual(
+            factory.devices[0].writes,
+            [
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x01, 0x00]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x02, 0x00]),
+                bytes([0x0F, 0x0E, 0x00, 0x02, 0x03, 0x01]),
+                bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]),
+            ],
+        )
+        self.assertTrue(response.read_attempted)
+
+    def test_wireless_pro_rx_raw_start_endpoint_sends_only_start_report(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.wireless_pro_rx_controller = RxccController(device_factory=factory, backend_name="test")
+        raw_start_route = next(route for route in app.routes if route.path == "/api/rf/start/wireless-pro-rx/raw")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start/wireless-pro-rx/raw"}
+        )
+
+        response = raw_start_route.endpoint(DeviceCommandRequest(channel=10, power=5), request)
+
+        self.assertEqual(response.command_sent, ["15 3 0 10 0 5"])
+        self.assertEqual(response.detail, "Sent raw RF start for `wireless-pro-rx` on channel 10 at power 5.")
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
+        self.assertTrue(response.read_attempted)
+
+    def test_wireless_pro_rx_gpio_endpoint_returns_device_response(self) -> None:
+        factory = RxccDeviceFactory(reads=[bytes([0xA5, 0x5A])])
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.wireless_pro_rx_controller = RxccController(device_factory=factory, backend_name="test")
+        gpio_route = next(route for route in app.routes if route.path == "/api/wireless-pro-rx/gpio/{pin}/{level}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/wireless-pro-rx/gpio/3/1"}
+        )
+
+        response = gpio_route.endpoint(3, 1, request)
+
+        self.assertEqual(response.command_sent, ["15 14 0 2 3 1"])
+        self.assertEqual(response.device_response, "165 90")
+        self.assertTrue(response.read_attempted)
+
+    def test_wireless_pro_rx_stop_rf_endpoint_returns_device_response_when_present(self) -> None:
+        factory = RxccDeviceFactory(reads=[bytes([0x10, 0xAA, 0x55])])
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.wireless_pro_rx_controller = RxccController(device_factory=factory, backend_name="test")
+        stop_route = next(route for route in app.routes if route.path == "/api/rf/stop/{device_type}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/stop/wireless-pro-rx"}
+        )
+
+        response = stop_route.endpoint("wireless-pro-rx", request)
+
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x0D, 0x00])])
+        self.assertEqual(response.command_sent, ["15 13 0"])
+        self.assertEqual(response.device_response, "16 170 85")
         self.assertTrue(response.read_attempted)
 
     def test_tx_battery_endpoint_returns_battery_mv(self) -> None:
