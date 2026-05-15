@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>damspy-rpicontrol - RODE Wireless PRO RX 0058</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f2f4f7; color: #111827; }
+    main { max-width: 1120px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    section { background: #ffffff; border: 1px solid #d0d7de; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06); }
+    .device-nav { font-size: 0.95rem; margin: 0.6rem 0 0.8rem; }
+    .device-nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
+    h1, h2 { margin-top: 0; }
+    form { display: grid; gap: 0.75rem; }
+    label { display: grid; gap: 0.35rem; font-weight: 600; }
+    select, input, button { font: inherit; padding: 0.7rem 0.8rem; border-radius: 8px; border: 1px solid #cbd5e1; }
+    button { cursor: pointer; background: #0f172a; color: #ffffff; border: none; }
+    button.secondary { background: #475569; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 1rem; min-height: 6rem; }
+    .health-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .mode-card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.85rem; }
+    .mode-card p { margin: 0 0 0.6rem; font-weight: 600; }
+    .mode-card code, .command-cell code { font-family: Consolas, "Courier New", monospace; font-size: 1.5rem; line-height: 1.2; }
+    .mode-card code { display: block; margin-top: 0.2rem; }
+    .command-row { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.55rem; flex-wrap: wrap; }
+    .command-row code { margin-top: 0; }
+    .command-grid { display: grid; gap: 0.65rem; }
+    .command-grid.headers { grid-template-columns: 7rem 1fr 1fr; font-weight: 700; color: #334155; margin-bottom: 0.3rem; }
+    .command-grid.rows { grid-template-columns: 7rem 1fr 1fr; }
+    .signal-cell { display: flex; align-items: center; font-weight: 700; color: #0f172a; }
+    .command-cell { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.75rem; background: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+    .command-cell code { display: block; margin: 0; }
+    .action-card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.85rem; background: #f8fafc; }
+    .action-card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
+    .action-card p { margin: 0 0 0.85rem; color: #475569; }
+    .compact-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .signal-pill { font-weight: 700; color: #0f172a; min-width: 5.5rem; }
+    .device-meta { color: #475569; }
+    @media (max-width: 800px) {
+      .compact-grid { grid-template-columns: 1fr; }
+      .command-cell { align-items: flex-start; }
+    }
+    .health-led { width: 14px; height: 14px; border-radius: 9999px; background: #9ca3af; border: 1px solid #6b7280; box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.45); }
+    .health-led.pass { background: #22c55e; border-color: #15803d; box-shadow: 0 0 10px rgba(34, 197, 94, 0.8); }
+    .health-led.fail { background: #ef4444; border-color: #b91c1c; box-shadow: 0 0 10px rgba(239, 68, 68, 0.8); }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>damspy-rpicontrol</h1>
+      <p>Manual LAN control page for: <strong>RODE Wireless PRO RX 0058</strong> (<code>wireless pro rx</code>).</p>
+      <p class="device-meta">USB ID <code>19f7:0058</code> · detected as <code>Bus 001 Device 018</code>.</p>
+      <nav class="device-nav">Devices: __DEVICE_NAV__</nav>
+      <div class="health-row">
+        <button class="secondary" id="health-check" type="button">Check health</button>
+        <span id="health-led" class="health-led" aria-label="Health status indicator"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Transmitting PA Mode</h2>
+      <div class="command-grid headers">
+        <div>Signal</div>
+        <div>Enable</div>
+        <div>Disable</div>
+      </div>
+      <div class="command-grid rows">
+        <div class="signal-cell">CTX</div>
+        <div class="command-cell">
+          <code>15 14 0 2 0 1</code>
+          <button type="button" data-gpio-pin="0" data-gpio-level="1">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 0 0</code>
+          <button class="secondary" type="button" data-gpio-pin="0" data-gpio-level="0">Send</button>
+        </div>
+        <div class="signal-cell">CPS</div>
+        <div class="command-cell">
+          <code>15 14 0 2 1 0</code>
+          <button type="button" data-gpio-pin="1" data-gpio-level="0">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 1 1</code>
+          <button class="secondary" type="button" data-gpio-pin="1" data-gpio-level="1">Send</button>
+        </div>
+        <div class="signal-cell">CRX</div>
+        <div class="command-cell">
+          <code>15 14 0 2 2 0</code>
+          <button type="button" data-gpio-pin="2" data-gpio-level="0">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 2 1</code>
+          <button class="secondary" type="button" data-gpio-pin="2" data-gpio-level="1">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Bypass Mode</h2>
+      <div class="command-grid headers">
+        <div>Signal</div>
+        <div>Enable</div>
+        <div>Disable</div>
+      </div>
+      <div class="command-grid rows">
+        <div class="signal-cell">CTX</div>
+        <div class="command-cell">
+          <code>15 14 0 2 0 0</code>
+          <button type="button" data-gpio-pin="0" data-gpio-level="0">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 0 1</code>
+          <button class="secondary" type="button" data-gpio-pin="0" data-gpio-level="1">Send</button>
+        </div>
+        <div class="signal-cell">CPS</div>
+        <div class="command-cell">
+          <code>15 14 0 2 1 1</code>
+          <button type="button" data-gpio-pin="1" data-gpio-level="1">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 1 0</code>
+          <button class="secondary" type="button" data-gpio-pin="1" data-gpio-level="0">Send</button>
+        </div>
+        <div class="signal-cell">CRX</div>
+        <div class="command-cell">
+          <code>15 14 0 2 2 0</code>
+          <button type="button" data-gpio-pin="2" data-gpio-level="0">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 2 1</code>
+          <button class="secondary" type="button" data-gpio-pin="2" data-gpio-level="1">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Receiving Mode</h2>
+      <div class="command-grid headers">
+        <div>Signal</div>
+        <div>Enable</div>
+        <div>Disable</div>
+      </div>
+      <div class="command-grid rows">
+        <div class="signal-cell">CTX</div>
+        <div class="command-cell">
+          <code>15 14 0 2 0 0</code>
+          <button type="button" data-gpio-pin="0" data-gpio-level="0">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 0 1</code>
+          <button class="secondary" type="button" data-gpio-pin="0" data-gpio-level="1">Send</button>
+        </div>
+        <div class="signal-cell">CPS</div>
+        <div class="command-cell">
+          <code>15 14 0 2 1 0</code>
+          <button type="button" data-gpio-pin="1" data-gpio-level="0">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 1 1</code>
+          <button class="secondary" type="button" data-gpio-pin="1" data-gpio-level="1">Send</button>
+        </div>
+        <div class="signal-cell">CRX</div>
+        <div class="command-cell">
+          <code>15 14 0 2 2 1</code>
+          <button type="button" data-gpio-pin="2" data-gpio-level="1">Send</button>
+        </div>
+        <div class="command-cell">
+          <code>15 14 0 2 2 0</code>
+          <button class="secondary" type="button" data-gpio-pin="2" data-gpio-level="0">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Antenna Path</h2>
+      <div class="compact-grid">
+        <div class="mode-card">
+          <p>Main antenna</p>
+          <div class="command-row"><span class="signal-pill">ANT_SEL</span><code>15 14 0 2 3 0</code><button type="button" data-gpio-pin="3" data-gpio-level="0">Send</button></div>
+        </div>
+        <div class="mode-card">
+          <p>Secondary antenna</p>
+          <div class="command-row"><span class="signal-pill">ANT_SEL</span><code>15 14 0 2 3 1</code><button class="secondary" type="button" data-gpio-pin="3" data-gpio-level="1">Send</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>RF Start</h2>
+      <div class="compact-grid">
+        <div class="action-card">
+          <h3>Start RF Only</h3>
+          <p>Sends only the raw RF start bytes without changing PA mode or antenna path first.</p>
+          <form data-endpoint="/api/rf/start/wireless-pro-rx/raw">
+            <label>Channel
+              <input name="channel" type="number" min="0" max="80" value="40">
+            </label>
+            <label>Power
+              <input name="power" type="number" min="0" max="10" value="10">
+            </label>
+            <button class="secondary" type="submit">Send Raw RF Start</button>
+          </form>
+        </div>
+        <div class="action-card">
+          <h3>Start RF (Full)</h3>
+          <p>Sets transmitting PA mode, applies antenna, then sends the RF start bytes.</p>
+          <form data-endpoint="/api/rf/start">
+            <input name="device" type="hidden" value="wireless-pro-rx">
+            <label>Antenna
+              <select name="antenna">
+                <option value="main">main</option>
+                <option value="secondary">secondary</option>
+              </select>
+            </label>
+            <label>Channel
+              <input name="channel" type="number" min="0" max="80" value="40">
+            </label>
+            <label>Power
+              <input name="power" type="number" min="0" max="10" value="10">
+            </label>
+            <button type="submit">Start RF (Full)</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section><h2>RF Stop</h2><button id="stop-rf" type="button">Stop RF</button></section>
+    <section><h2>Result</h2><pre id="output">Ready.</pre></section>
+  </main>
+  <script>
+    const currentDevice = "wireless-pro-rx";
+    const output = document.getElementById("output");
+    const healthLed = document.getElementById("health-led");
+    function setHealthLed(status) { healthLed.classList.remove("pass", "fail"); if (status === "pass") healthLed.classList.add("pass"); else if (status === "fail") healthLed.classList.add("fail"); }
+    function writeResult(title, payload) {
+      const lines = [title];
+      if (payload.detail) lines.push(`Detail: ${payload.detail}`);
+      if (Array.isArray(payload.command_sent) && payload.command_sent.length) {
+        lines.push("Bytes written:");
+        lines.push(...payload.command_sent);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "device_response")) {
+        lines.push("Bytes read:");
+        lines.push(payload.device_response || (payload.read_attempted ? "(no bytes returned)" : "(no read attempted)"));
+      }
+      if ("battery_mv" in payload) lines.push(`Battery mV: ${payload.battery_mv}`);
+      if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));
+      output.textContent = lines.join("\n");
+    }
+    async function requestJson(endpoint, payload, method = "POST") {
+      const response = await fetch(endpoint, { method, headers: payload ? { "Content-Type": "application/json" } : {}, body: payload ? JSON.stringify(payload) : undefined });
+      let body; try { body = await response.json(); } catch (error) { body = { detail: "Response was not valid JSON." }; }
+      if (!response.ok) throw body; return body;
+    }
+    document.querySelectorAll("form[data-endpoint]").forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(form).entries());
+        if ("channel" in data) data.channel = Number(data.channel);
+        if ("power" in data) data.power = Number(data.power);
+        try { writeResult("Success", await requestJson(form.dataset.endpoint, data)); } catch (error) { writeResult("Error", error); }
+      });
+    });
+    document.querySelectorAll("[data-gpio-pin][data-gpio-level]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const pin = button.dataset.gpioPin;
+        const level = button.dataset.gpioLevel;
+        try { writeResult("Success", await requestJson(`/api/wireless-pro-rx/gpio/${pin}/${level}`)); } catch (error) { writeResult("Error", error); }
+      });
+    });
+    document.getElementById("stop-rf").addEventListener("click", async () => {
+      try { writeResult("Success", await requestJson(`/api/rf/stop/${currentDevice}`)); } catch (error) { writeResult("Error", error); }
+    });
+    document.getElementById("health-check").addEventListener("click", async () => {
+      try { const result = await requestJson("/api/healthcheck", null, "POST"); setHealthLed(result.passed ? "pass" : "fail"); output.textContent = result.output || "(no healthcheck output)"; }
+      catch (error) { setHealthLed("fail"); writeResult("Error", error); }
+    });
+  </script>
+</body>
+</html>
