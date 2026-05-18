@@ -33,6 +33,7 @@ from damspy_rpicontrol.rxcc_device import (
     DeviceUnavailableError,
     RxccController,
     WIRELESS_PRO_RX_PRODUCT_ID,
+    WirelessProRxController,
 )
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -78,7 +79,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
     )
     app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
     app.state.controller = controller or RxccController()
-    app.state.wireless_pro_rx_controller = RxccController(product_id=WIRELESS_PRO_RX_PRODUCT_ID)
+    app.state.wireless_pro_rx_controller = WirelessProRxController(product_id=WIRELESS_PRO_RX_PRODUCT_ID)
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
 
@@ -140,10 +141,6 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
     @app.post("/api/rxcc/gpio/{pin}/{level}", response_model=OperationResponse)
     def set_rxcc_gpio(pin: int, level: int, request: Request) -> OperationResponse:
         return _set_rxcc_family_gpio(DeviceType.RXCC, pin, level, request)
-
-    @app.post("/api/wireless-pro-rx/gpio/{pin}/{level}", response_model=OperationResponse)
-    def set_wireless_pro_rx_gpio(pin: int, level: int, request: Request) -> OperationResponse:
-        return _set_rxcc_family_gpio(DeviceType.WIRELESS_PRO_RX, pin, level, request)
 
     def _set_rxcc_family_gpio(
         device_type: DeviceType,
@@ -210,12 +207,41 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         if payload.channel is None or payload.power is None:
             raise HTTPException(
                 status_code=422,
-                detail="`channel` and `power` are required for raw RXCC-family RF start.",
+                detail="`channel` and `power` are required for raw RF start.",
             )
 
-        controller = _resolve_rxcc_family_controller(request, device_type)
+        if device_type == DeviceType.RXCC:
+            controller = _resolve_rxcc_family_controller(request, device_type)
+            try:
+                reports_sent = controller.start_rf_raw(channel=payload.channel, power=payload.power)
+            except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+                raise _translate_device_error(exc) from exc
+            command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+            return OperationResponse(
+                operation="start_rf_raw",
+                detail=f"Sent raw RXCC RF start on channel {payload.channel} at power {payload.power}.",
+                reports_sent=reports_sent,
+                command_sent=command_sent,
+                device_response=device_response,
+                read_attempted=True,
+            )
+
+        if payload.antenna is None:
+            raise HTTPException(
+                status_code=422,
+                detail="`antenna` is required for raw Wireless PRO RX RF start.",
+            )
+
+        controller = request.app.state.wireless_pro_rx_controller
         try:
-            reports_sent = controller.start_rf_raw(channel=payload.channel, power=payload.power)
+            reports_sent = controller.start_rf_raw(
+                antenna=payload.antenna,
+                channel=payload.channel,
+                power=payload.power,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (DeviceUnavailableError, DeviceCommunicationError) as exc:
             raise _translate_device_error(exc) from exc
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
@@ -223,12 +249,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         return OperationResponse(
             operation="start_rf_raw",
             detail=(
-                f"Sent raw RXCC RF start on channel {payload.channel} at power {payload.power}."
-                if device_type == DeviceType.RXCC
-                else (
-                    f"Sent raw RF start for `{device_type.value}` on channel "
-                    f"{payload.channel} at power {payload.power}."
-                )
+                f"Sent raw RF start for `wireless-pro-rx` on channel {payload.channel} "
+                f"using `{payload.antenna.value}` antenna at power {payload.power} dBm."
             ),
             reports_sent=reports_sent,
             command_sent=command_sent,
@@ -410,7 +432,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         command: DeviceCommand,
         payload: DeviceCommandRequest,
     ) -> OperationResponse:
-        if device_type in {DeviceType.RXCC, DeviceType.WIRELESS_PRO_RX}:
+        if device_type == DeviceType.RXCC:
             controller = _resolve_rxcc_family_controller(request, device_type)
             try:
                 if command == DeviceCommand.SET_FRONTEND_MODE:
@@ -427,10 +449,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                     operation = "set_antenna"
                 elif command == DeviceCommand.START_RF:
                     if payload.antenna is None:
-                        raise HTTPException(
-                            status_code=422,
-                            detail="`antenna` is required when starting RF for RXCC-family devices.",
-                        )
+                        raise HTTPException(status_code=422, detail="`antenna` is required when starting RF for RXCC.")
                     if payload.channel is None or payload.power is None:
                         raise HTTPException(
                             status_code=422,
@@ -454,8 +473,58 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                 else:
                     raise HTTPException(
                         status_code=422,
-                        detail=f"Command `{command.value}` is not supported for RXCC-family devices.",
+                        detail=f"Command `{command.value}` is not supported for RXCC.",
                     )
+            except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+                raise _translate_device_error(exc) from exc
+            command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+            return OperationResponse(
+                operation=operation,
+                detail=detail,
+                reports_sent=reports_sent,
+                command_sent=command_sent,
+                device_response=device_response,
+                read_attempted=True,
+            )
+
+        if device_type == DeviceType.WIRELESS_PRO_RX:
+            controller = request.app.state.wireless_pro_rx_controller
+            try:
+                if command == DeviceCommand.START_RF:
+                    if payload.antenna is None:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="`antenna` is required when starting RF for Wireless PRO RX.",
+                        )
+                    if payload.channel is None or payload.power is None:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="`channel` and `power` are required for RF start.",
+                        )
+                    reports_sent = controller.start_rf(
+                        antenna=payload.antenna,
+                        channel=payload.channel,
+                        power=payload.power,
+                    )
+                    detail = (
+                        f"Sent RF start for `wireless-pro-rx` on channel {payload.channel} "
+                        f"using `{payload.antenna.value}` antenna at power {payload.power} dBm."
+                    )
+                    operation = "start_rf"
+                elif command == DeviceCommand.STOP_RF:
+                    reports_sent = controller.stop_rf()
+                    detail = "Sent RF stop command for `wireless-pro-rx`."
+                    operation = "stop_rf"
+                else:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Command `{command.value}` is not supported for Wireless PRO RX. "
+                            "This device uses antenna selection inside the RF start command and has no separate PA-mode control."
+                        ),
+                    )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             except (DeviceUnavailableError, DeviceCommunicationError) as exc:
                 raise _translate_device_error(exc) from exc
             command_sent, device_response = _format_trace(*controller.get_last_io_trace())
@@ -518,9 +587,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 def _resolve_rxcc_family_controller(request: Request, device_type: DeviceType) -> RxccController:
     if device_type == DeviceType.RXCC:
         return request.app.state.controller
-    if device_type == DeviceType.WIRELESS_PRO_RX:
-        return request.app.state.wireless_pro_rx_controller
-    raise HTTPException(status_code=422, detail=f"Device `{device_type.value}` is not an RXCC-family device.")
+    raise HTTPException(status_code=422, detail=f"Device `{device_type.value}` is not RXCC.")
 
 
 def _render_rxcc_guide() -> str:

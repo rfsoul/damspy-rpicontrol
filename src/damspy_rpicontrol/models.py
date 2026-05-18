@@ -1,6 +1,8 @@
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+WIRELESS_PRO_RX_POWER_LEVELS = frozenset({4, 3, 0, -4, -8, -12, -16, -20, -40})
 
 
 class FrontendMode(str, Enum):
@@ -32,7 +34,24 @@ class StartRfRequest(BaseModel):
     device: str = Field(..., pattern="^(rxcc|tx|rx|wireless-pro-rx)$")
     antenna: AntennaPath | None = None
     channel: int = Field(..., ge=0, le=80)
-    power: int = Field(..., ge=0, le=10)
+    power: int = Field(..., ge=-40, le=10)
+
+    @model_validator(mode="after")
+    def validate_device_specific_power(self) -> "StartRfRequest":
+        if self.device == "wireless-pro-rx":
+            if self.antenna is None:
+                raise ValueError("`antenna` is required for wireless-pro-rx RF start.")
+            if self.power not in WIRELESS_PRO_RX_POWER_LEVELS:
+                allowed_values = ", ".join(str(value) for value in sorted(WIRELESS_PRO_RX_POWER_LEVELS, reverse=True))
+                raise ValueError(
+                    "wireless-pro-rx power must be one of: "
+                    f"{allowed_values}."
+                )
+            return self
+
+        if self.power < 0 or self.power > 10:
+            raise ValueError("power must be between 0 and 10 for this device.")
+        return self
 
 
 class DeviceType(str, Enum):
@@ -53,7 +72,7 @@ class DeviceCommandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     channel: int | None = Field(default=None, ge=0, le=80)
-    power: int | None = Field(default=None, ge=0, le=10)
+    power: int | None = Field(default=None, ge=-40, le=10)
     antenna: AntennaPath | None = None
     mode: FrontendMode | None = None
 

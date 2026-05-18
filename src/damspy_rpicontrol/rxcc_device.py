@@ -7,7 +7,11 @@ from typing import Callable, Iterator, Protocol, Sequence
 
 import importlib
 
-from damspy_rpicontrol.models import AntennaPath, FrontendMode
+from damspy_rpicontrol.models import (
+    AntennaPath,
+    FrontendMode,
+    WIRELESS_PRO_RX_POWER_LEVELS,
+)
 
 VENDOR_ID = 0x19F7
 RXCC_PRODUCT_ID = 0x008C
@@ -86,6 +90,21 @@ def build_gpio_report(pin: int, level: int) -> bytes:
 
 def build_rf_start_report(channel: int, power: int) -> bytes:
     return build_report([0x03, 0x00, channel, 0x00, power])
+
+
+def _encode_signed_byte(value: int) -> int:
+    return value & 0xFF
+
+
+def build_wireless_pro_rf_start_report(channel: int, antenna: AntennaPath, power: int) -> bytes:
+    if power not in WIRELESS_PRO_RX_POWER_LEVELS:
+        raise ValueError(
+            "Wireless PRO RX power must be one of: "
+            + ", ".join(str(value) for value in sorted(WIRELESS_PRO_RX_POWER_LEVELS, reverse=True))
+            + "."
+        )
+    antenna_id = 0 if antenna == AntennaPath.MAIN else 1
+    return build_report([0x03, 0x00, channel, antenna_id, _encode_signed_byte(power)])
 
 
 def build_rf_stop_report() -> bytes:
@@ -238,3 +257,19 @@ class RxccController:
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []
         self._last_response = None
+
+
+class WirelessProRxController(RxccController):
+    def __init__(
+        self,
+        product_id: int = WIRELESS_PRO_RX_PRODUCT_ID,
+        device_factory: DeviceFactory | None = None,
+        backend_name: str | None = None,
+    ) -> None:
+        super().__init__(product_id=product_id, device_factory=device_factory, backend_name=backend_name)
+
+    def start_rf(self, antenna: AntennaPath, channel: int, power: int) -> int:
+        return self._execute([build_wireless_pro_rf_start_report(channel=channel, antenna=antenna, power=power)])
+
+    def start_rf_raw(self, antenna: AntennaPath, channel: int, power: int) -> int:
+        return self._execute([build_wireless_pro_rf_start_report(channel=channel, antenna=antenna, power=power)])

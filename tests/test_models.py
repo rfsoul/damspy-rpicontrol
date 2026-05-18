@@ -26,6 +26,11 @@ class StartRfRequestTest(unittest.TestCase):
         self.assertEqual(request.device, "wireless-pro-rx")
         self.assertEqual(request.antenna, AntennaPath.SECONDARY)
 
+    def test_accepts_wireless_pro_negative_power_level(self) -> None:
+        request = StartRfRequest(device="wireless-pro-rx", antenna=AntennaPath.MAIN, channel=12, power=-4)
+
+        self.assertEqual(request.power, -4)
+
     def test_rejects_channel_above_documented_range(self) -> None:
         with self.assertRaises(ValidationError):
             StartRfRequest(device="tx", channel=81, power=5)
@@ -33,6 +38,10 @@ class StartRfRequestTest(unittest.TestCase):
     def test_rejects_power_above_documented_range(self) -> None:
         with self.assertRaises(ValidationError):
             StartRfRequest(antenna=AntennaPath.MAIN, channel=10, power=11)
+
+    def test_rejects_unsupported_wireless_pro_power_level(self) -> None:
+        with self.assertRaises(ValidationError):
+            StartRfRequest(device="wireless-pro-rx", antenna=AntennaPath.MAIN, channel=10, power=2)
 
     def test_frontend_mode_values_match_reference(self) -> None:
         self.assertEqual(FrontendMode.TRANSMITTING_PA.value, "transmitting-pa")

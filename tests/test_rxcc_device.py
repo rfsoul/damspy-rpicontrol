@@ -4,10 +4,12 @@ import unittest.mock
 from damspy_rpicontrol.models import AntennaPath, FrontendMode
 from damspy_rpicontrol.rxcc_device import (
     RxccController,
+    WirelessProRxController,
     antenna_reports,
     build_gpio_report,
     build_rf_start_report,
     build_rf_stop_report,
+    build_wireless_pro_rf_start_report,
     frontend_mode_reports,
 )
 
@@ -54,6 +56,12 @@ class RxccDeviceTest(unittest.TestCase):
 
     def test_rf_stop_report_matches_reference_shape(self) -> None:
         self.assertEqual(build_rf_stop_report(), bytes([0x0F, 0x0D, 0x00]))
+
+    def test_wireless_pro_rf_start_report_encodes_antenna_and_signed_power(self) -> None:
+        self.assertEqual(
+            build_wireless_pro_rf_start_report(channel=78, antenna=AntennaPath.SECONDARY, power=-4),
+            bytes([0x0F, 0x03, 0x00, 78, 0x01, 0xFC]),
+        )
 
     def test_transmitting_pa_mode_reports_match_expected_sequence(self) -> None:
         self.assertEqual(
@@ -161,6 +169,16 @@ class RxccDeviceTest(unittest.TestCase):
         _, response = controller.get_last_io_trace()
 
         self.assertEqual(response, bytes([0xAA, 0x55]))
+
+    def test_wireless_pro_start_rf_sends_single_embedded_antenna_report(self) -> None:
+        factory = DeviceFactory()
+        controller = WirelessProRxController(device_factory=factory, backend_name="test")
+
+        reports_sent = controller.start_rf(AntennaPath.MAIN, channel=78, power=-4)
+
+        self.assertEqual(reports_sent, 1)
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 78, 0x00, 0xFC])])
+        self.assertTrue(factory.devices[0].closed)
 
 
 if __name__ == "__main__":
