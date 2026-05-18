@@ -96,15 +96,15 @@ def _encode_signed_byte(value: int) -> int:
     return value & 0xFF
 
 
-def build_wireless_pro_rf_start_report(channel: int, antenna: AntennaPath, power: int) -> bytes:
-    if power not in WIRELESS_PRO_RX_POWER_LEVELS:
+def build_wireless_pro_rf_start_report(wirepro_freq: int, antenna: AntennaPath, wirepro_power: int) -> bytes:
+    if wirepro_power not in WIRELESS_PRO_RX_POWER_LEVELS:
         raise ValueError(
             "Wireless PRO RX power must be one of: "
             + ", ".join(str(value) for value in sorted(WIRELESS_PRO_RX_POWER_LEVELS, reverse=True))
             + "."
         )
     antenna_id = 0 if antenna == AntennaPath.MAIN else 1
-    return build_report([0x03, 0x00, channel, antenna_id, _encode_signed_byte(power)])
+    return build_report([0x03, 0x00, wirepro_freq, antenna_id, _encode_signed_byte(wirepro_power)])
 
 
 def build_rf_stop_report() -> bytes:
@@ -268,8 +268,24 @@ class WirelessProRxController(RxccController):
     ) -> None:
         super().__init__(product_id=product_id, device_factory=device_factory, backend_name=backend_name)
 
-    def start_rf(self, antenna: AntennaPath, channel: int, power: int) -> int:
-        return self._execute([build_wireless_pro_rf_start_report(channel=channel, antenna=antenna, power=power)])
+    def start_rf(self, antenna: AntennaPath, wirepro_freq: int, wirepro_power: int) -> int:
+        return self._execute(
+            [
+                build_wireless_pro_rf_start_report(
+                    wirepro_freq=wirepro_freq,
+                    antenna=antenna,
+                    wirepro_power=wirepro_power,
+                )
+            ]
+        )
 
-    def start_rf_raw(self, antenna: AntennaPath, channel: int, power: int) -> int:
-        return self._execute([build_wireless_pro_rf_start_report(channel=channel, antenna=antenna, power=power)])
+    def start_rf_raw(self, antenna: AntennaPath, wirepro_freq: int, wirepro_power: int) -> int:
+        return self._execute(
+            [
+                build_wireless_pro_rf_start_report(
+                    wirepro_freq=wirepro_freq,
+                    antenna=antenna,
+                    wirepro_power=wirepro_power,
+                )
+            ]
+        )

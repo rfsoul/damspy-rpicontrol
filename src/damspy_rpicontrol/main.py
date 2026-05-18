@@ -181,7 +181,9 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             payload=DeviceCommandRequest(
                 antenna=payload.antenna,
                 channel=payload.channel,
+                wirepro_freq=payload.wirepro_freq,
                 power=payload.power,
+                wirepro_power=payload.wirepro_power,
             ),
         )
 
@@ -204,13 +206,12 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         payload: DeviceCommandRequest,
         request: Request,
     ) -> OperationResponse:
-        if payload.channel is None or payload.power is None:
-            raise HTTPException(
-                status_code=422,
-                detail="`channel` and `power` are required for raw RF start.",
-            )
-
         if device_type == DeviceType.RXCC:
+            if payload.channel is None or payload.power is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="`channel` and `power` are required for raw RXCC RF start.",
+                )
             controller = _resolve_rxcc_family_controller(request, device_type)
             try:
                 reports_sent = controller.start_rf_raw(channel=payload.channel, power=payload.power)
@@ -232,13 +233,18 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                 status_code=422,
                 detail="`antenna` is required for raw Wireless PRO RX RF start.",
             )
+        if payload.wirepro_freq is None or payload.wirepro_power is None:
+            raise HTTPException(
+                status_code=422,
+                detail="`wirepro_freq` and `wirepro_power` are required for raw Wireless PRO RX RF start.",
+            )
 
         controller = request.app.state.wireless_pro_rx_controller
         try:
             reports_sent = controller.start_rf_raw(
                 antenna=payload.antenna,
-                channel=payload.channel,
-                power=payload.power,
+                wirepro_freq=payload.wirepro_freq,
+                wirepro_power=payload.wirepro_power,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -249,8 +255,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         return OperationResponse(
             operation="start_rf_raw",
             detail=(
-                f"Sent raw RF start for `wireless-pro-rx` on channel {payload.channel} "
-                f"using `{payload.antenna.value}` antenna at power {payload.power} dBm."
+                f"Sent raw RF start for `wireless-pro-rx` with wirepro_freq {payload.wirepro_freq} "
+                f"using `{payload.antenna.value}` antenna at wirepro_power {payload.wirepro_power} dBm."
             ),
             reports_sent=reports_sent,
             command_sent=command_sent,
@@ -496,19 +502,19 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
                             status_code=422,
                             detail="`antenna` is required when starting RF for Wireless PRO RX.",
                         )
-                    if payload.channel is None or payload.power is None:
+                    if payload.wirepro_freq is None or payload.wirepro_power is None:
                         raise HTTPException(
                             status_code=422,
-                            detail="`channel` and `power` are required for RF start.",
+                            detail="`wirepro_freq` and `wirepro_power` are required for Wireless PRO RX RF start.",
                         )
                     reports_sent = controller.start_rf(
                         antenna=payload.antenna,
-                        channel=payload.channel,
-                        power=payload.power,
+                        wirepro_freq=payload.wirepro_freq,
+                        wirepro_power=payload.wirepro_power,
                     )
                     detail = (
-                        f"Sent RF start for `wireless-pro-rx` on channel {payload.channel} "
-                        f"using `{payload.antenna.value}` antenna at power {payload.power} dBm."
+                        f"Sent RF start for `wireless-pro-rx` with wirepro_freq {payload.wirepro_freq} "
+                        f"using `{payload.antenna.value}` antenna at wirepro_power {payload.wirepro_power} dBm."
                     )
                     operation = "start_rf"
                 elif command == DeviceCommand.STOP_RF:

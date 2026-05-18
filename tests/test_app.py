@@ -217,6 +217,9 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("RODE Wireless PRO RX 0058", body)
         self.assertIn("<code>wireless pro rx</code>", body)
         self.assertIn("PA always on", body)
+        self.assertIn("wirepro_freq", body)
+        self.assertIn("wirepro_power", body)
+        self.assertIn("2478 MHz -> 78", body)
         self.assertIn("PCB antenna", body)
         self.assertIn("FPC antenna", body)
         self.assertIn("15 3 0 freq ant_id pwr", body)
@@ -318,7 +321,7 @@ class AppStructureTest(unittest.TestCase):
         request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start"})
 
         response = start_route.endpoint(
-            StartRfRequest(device="wireless-pro-rx", antenna="secondary", channel=78, power=-4),
+            StartRfRequest(device="wireless-pro-rx", antenna="secondary", wirepro_freq=78, wirepro_power=-4),
             request,
         )
 
@@ -328,7 +331,7 @@ class AppStructureTest(unittest.TestCase):
         )
         self.assertEqual(
             response.detail,
-            "Sent RF start for `wireless-pro-rx` on channel 78 using `secondary` antenna at power -4 dBm.",
+            "Sent RF start for `wireless-pro-rx` with wirepro_freq 78 using `secondary` antenna at wirepro_power -4 dBm.",
         )
         self.assertEqual(
             factory.devices[0].writes,
@@ -347,12 +350,12 @@ class AppStructureTest(unittest.TestCase):
             {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/rf/start/wireless-pro-rx/raw"}
         )
 
-        response = raw_start_route.endpoint(DeviceCommandRequest(antenna="main", channel=78, power=-4), request)
+        response = raw_start_route.endpoint(DeviceCommandRequest(antenna="main", wirepro_freq=78, wirepro_power=-4), request)
 
         self.assertEqual(response.command_sent, ["15 3 0 78 0 252"])
         self.assertEqual(
             response.detail,
-            "Sent raw RF start for `wireless-pro-rx` on channel 78 using `main` antenna at power -4 dBm.",
+            "Sent raw RF start for `wireless-pro-rx` with wirepro_freq 78 using `main` antenna at wirepro_power -4 dBm.",
         )
         self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 78, 0x00, 0xFC])])
         self.assertTrue(response.read_attempted)

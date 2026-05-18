@@ -33,15 +33,25 @@ class StartRfRequest(BaseModel):
 
     device: str = Field(..., pattern="^(rxcc|tx|rx|wireless-pro-rx)$")
     antenna: AntennaPath | None = None
-    channel: int = Field(..., ge=0, le=80)
-    power: int = Field(..., ge=-40, le=10)
+    channel: int | None = Field(default=None, ge=0, le=80)
+    wirepro_freq: int | None = Field(default=None, ge=0, le=80)
+    power: int | None = Field(default=None, ge=0, le=10)
+    wirepro_power: int | None = Field(default=None, ge=-40, le=10)
 
     @model_validator(mode="after")
     def validate_device_specific_power(self) -> "StartRfRequest":
         if self.device == "wireless-pro-rx":
             if self.antenna is None:
                 raise ValueError("`antenna` is required for wireless-pro-rx RF start.")
-            if self.power not in WIRELESS_PRO_RX_POWER_LEVELS:
+            if self.wirepro_freq is None:
+                raise ValueError("`wirepro_freq` is required for wireless-pro-rx RF start.")
+            if self.channel is not None:
+                raise ValueError("`channel` is not supported for wireless-pro-rx RF start. Use `wirepro_freq`.")
+            if self.wirepro_power is None:
+                raise ValueError("`wirepro_power` is required for wireless-pro-rx RF start.")
+            if self.power is not None:
+                raise ValueError("`power` is not supported for wireless-pro-rx RF start. Use `wirepro_power`.")
+            if self.wirepro_power not in WIRELESS_PRO_RX_POWER_LEVELS:
                 allowed_values = ", ".join(str(value) for value in sorted(WIRELESS_PRO_RX_POWER_LEVELS, reverse=True))
                 raise ValueError(
                     "wireless-pro-rx power must be one of: "
@@ -49,8 +59,14 @@ class StartRfRequest(BaseModel):
                 )
             return self
 
-        if self.power < 0 or self.power > 10:
-            raise ValueError("power must be between 0 and 10 for this device.")
+        if self.channel is None:
+            raise ValueError("`channel` is required for this device.")
+        if self.wirepro_freq is not None:
+            raise ValueError("`wirepro_freq` is only supported for wireless-pro-rx.")
+        if self.wirepro_power is not None:
+            raise ValueError("`wirepro_power` is only supported for wireless-pro-rx.")
+        if self.power is None:
+            raise ValueError("`power` is required for this device.")
         return self
 
 
@@ -72,7 +88,9 @@ class DeviceCommandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     channel: int | None = Field(default=None, ge=0, le=80)
-    power: int | None = Field(default=None, ge=-40, le=10)
+    wirepro_freq: int | None = Field(default=None, ge=0, le=80)
+    power: int | None = Field(default=None, ge=0, le=10)
+    wirepro_power: int | None = Field(default=None, ge=-40, le=10)
     antenna: AntennaPath | None = None
     mode: FrontendMode | None = None
 

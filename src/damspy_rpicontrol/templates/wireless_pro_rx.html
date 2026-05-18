@@ -50,12 +50,14 @@
             <option value="secondary">secondary (FPC antenna, ant_id 1)</option>
           </select>
         </label>
-        <label>Channel
-          <input name="channel" type="number" min="0" max="80" value="40">
+        <label>wirepro_freq
+          <input name="wirepro_freq" type="number" min="0" max="80" value="40">
         </label>
-        <label>Power (dBm)
-          <input name="power" type="number" min="-40" max="4" step="1" value="4">
+        <label>wirepro_power (dBm)
+          <input name="wirepro_power" type="number" min="-40" max="4" step="1" value="4">
         </label>
+        <p class="hint"><code>wirepro_freq</code> is the final two digits of the RF frequency from the Wireless Pro spec. Example: <code>2478 MHz -> 78</code>.</p>
+        <p class="hint"><code>wirepro_power</code> is the exact Wireless Pro dBm value from the spec.</p>
         <p class="hint">Valid power settings: <code>4, 3, 0, -4, -8, -12, -16, -20, -40</code>. Negative values are encoded as two's complement in the final HID byte.</p>
         <button type="submit">Start RF</button>
       </form>
@@ -70,11 +72,11 @@
             <option value="secondary">secondary (FPC antenna, ant_id 1)</option>
           </select>
         </label>
-        <label>Channel
-          <input name="channel" type="number" min="0" max="80" value="40">
+        <label>wirepro_freq
+          <input name="wirepro_freq" type="number" min="0" max="80" value="40">
         </label>
-        <label>Power (dBm)
-          <input name="power" type="number" min="-40" max="4" step="1" value="4">
+        <label>wirepro_power (dBm)
+          <input name="wirepro_power" type="number" min="-40" max="4" step="1" value="4">
         </label>
         <p class="hint">This sends only the RF start bytes: <code>15 3 0 freq ant_id pwr</code>.</p>
         <button class="secondary" type="submit">Send Raw RF Start</button>
@@ -120,8 +122,8 @@
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const data = Object.fromEntries(new FormData(form).entries());
-        if ("channel" in data) data.channel = Number(data.channel);
-        if ("power" in data) data.power = Number(data.power);
+        if ("wirepro_freq" in data) data.wirepro_freq = Number(data.wirepro_freq);
+        if ("wirepro_power" in data) data.wirepro_power = Number(data.wirepro_power);
         try { writeResult("Success", await requestJson(form.dataset.endpoint, data)); } catch (error) { writeResult("Error", error); }
       });
     });

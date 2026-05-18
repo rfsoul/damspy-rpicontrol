@@ -59,7 +59,7 @@ class RxccDeviceTest(unittest.TestCase):
 
     def test_wireless_pro_rf_start_report_encodes_antenna_and_signed_power(self) -> None:
         self.assertEqual(
-            build_wireless_pro_rf_start_report(channel=78, antenna=AntennaPath.SECONDARY, power=-4),
+            build_wireless_pro_rf_start_report(wirepro_freq=78, antenna=AntennaPath.SECONDARY, wirepro_power=-4),
             bytes([0x0F, 0x03, 0x00, 78, 0x01, 0xFC]),
         )
 
@@ -174,7 +174,7 @@ class RxccDeviceTest(unittest.TestCase):
         factory = DeviceFactory()
         controller = WirelessProRxController(device_factory=factory, backend_name="test")
 
-        reports_sent = controller.start_rf(AntennaPath.MAIN, channel=78, power=-4)
+        reports_sent = controller.start_rf(AntennaPath.MAIN, wirepro_freq=78, wirepro_power=-4)
 
         self.assertEqual(reports_sent, 1)
         self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 78, 0x00, 0xFC])])
