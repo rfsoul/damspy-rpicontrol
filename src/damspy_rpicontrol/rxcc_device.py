@@ -7,6 +7,13 @@ from typing import Callable, Iterator, Protocol, Sequence
 
 import importlib
 
+from damspy_rpicontrol.hendrix_device import (
+    BATTERY_READ_TIMEOUT_MS,
+    BATTERY_REQUEST_LENGTH,
+    BatteryInfo,
+    build_battery_info_request,
+    parse_battery_info_response,
+)
 from damspy_rpicontrol.models import (
     AntennaPath,
     FrontendMode,
@@ -289,3 +296,29 @@ class WirelessProRxController(RxccController):
                 )
             ]
         )
+
+    def read_battery_mv(self) -> int:
+        return self.read_battery_info().battery_mv
+
+    def read_battery_info(self) -> BatteryInfo:
+        with self._lock:
+            self._reset_io_trace()
+            with self._open_device() as device:
+                self._write_reports(device, [build_battery_info_request()])
+                return self._read_battery_info(device)
+
+    def _read_battery_info(self, device: HidDevice) -> BatteryInfo:
+        try:
+            response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
+        except Exception as exc:
+            raise DeviceCommunicationError(
+                f"Failed while reading Wireless PRO RX battery response ({exc})."
+            ) from exc
+
+        if response is None:
+            self._last_response = None
+            raise DeviceCommunicationError("Wireless PRO RX battery response was empty.")
+
+        response_bytes = bytes(response)
+        self._last_response = response_bytes
+        return parse_battery_info_response(response_bytes)

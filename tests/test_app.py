@@ -224,6 +224,11 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("FPC antenna", body)
         self.assertIn("15 3 0 freq ant_id pwr", body)
         self.assertIn("/api/rf/start/wireless-pro-rx/raw", body)
+        self.assertIn("Battery Voltage (mV)", body)
+        self.assertIn("Temperature (C)", body)
+        self.assertIn("Charge State", body)
+        self.assertIn("Charge Current (mA)", body)
+        self.assertIn("Read Battery", body)
         self.assertNotIn("Transmitting PA Mode", body)
         self.assertNotIn("Bypass Mode", body)
         self.assertNotIn("Receiving Mode", body)
@@ -386,6 +391,26 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.device.value, "tx")
         self.assertEqual(response.battery_mv, 3812)
+        self.assertEqual(response.temperature_c, 26)
+        self.assertEqual(response.charge_state, "0x01")
+        self.assertEqual(response.charge_state_code, 1)
+        self.assertEqual(response.charge_current_ma, 300)
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["1 97 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
+        self.assertEqual(response.device_response, "2 97 65 228 14 100 0 26 0 1 44 1")
+
+    def test_wireless_pro_rx_battery_endpoint_returns_battery_mv(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.wireless_pro_rx_controller = StubHendrixController(battery_mv=3899)
+        battery_route = next(route for route in app.routes if route.path == "/api/battery/{device_type}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/battery/wireless-pro-rx"}
+        )
+
+        response = battery_route.endpoint("wireless-pro-rx", request)
+
+        self.assertEqual(response.device.value, "wireless-pro-rx")
+        self.assertEqual(response.battery_mv, 3899)
         self.assertEqual(response.temperature_c, 26)
         self.assertEqual(response.charge_state, "0x01")
         self.assertEqual(response.charge_state_code, 1)

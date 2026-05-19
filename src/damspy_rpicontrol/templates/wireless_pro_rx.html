@@ -91,6 +91,25 @@
       </div>
     </section>
 
+    <section>
+      <h2>Battery</h2>
+      <form id="battery-form">
+        <label>Battery Voltage (mV)
+          <input id="battery-mv" name="battery_mv" type="number" inputmode="numeric" readonly placeholder="Not read yet">
+        </label>
+        <label>Temperature (C)
+          <input id="battery-temperature-c" name="temperature_c" type="number" inputmode="numeric" readonly placeholder="Not read yet">
+        </label>
+        <label>Charge State
+          <input id="battery-charge-state" name="charge_state" type="text" readonly placeholder="Not read yet">
+        </label>
+        <label>Charge Current (mA)
+          <input id="battery-charge-current-ma" name="charge_current_ma" type="number" inputmode="numeric" readonly placeholder="Not read yet">
+        </label>
+        <button id="read-battery" type="submit">Read Battery</button>
+      </form>
+    </section>
+
     <section><h2>RF Stop</h2><button id="stop-rf" type="button">Stop RF</button></section>
     <section><h2>Result</h2><pre id="output">Ready.</pre></section>
   </main>
@@ -98,6 +117,10 @@
     const currentDevice = "wireless-pro-rx";
     const output = document.getElementById("output");
     const healthLed = document.getElementById("health-led");
+    const batteryMvField = document.getElementById("battery-mv");
+    const batteryTemperatureField = document.getElementById("battery-temperature-c");
+    const batteryChargeStateField = document.getElementById("battery-charge-state");
+    const batteryChargeCurrentField = document.getElementById("battery-charge-current-ma");
     function setHealthLed(status) { healthLed.classList.remove("pass", "fail"); if (status === "pass") healthLed.classList.add("pass"); else if (status === "fail") healthLed.classList.add("fail"); }
     function writeResult(title, payload) {
       const lines = [title];
@@ -110,6 +133,10 @@
         lines.push("Bytes read:");
         lines.push(payload.device_response || (payload.read_attempted ? "(no bytes returned)" : "(no read attempted)"));
       }
+      if ("battery_mv" in payload) lines.push(`Battery mV: ${payload.battery_mv}`);
+      if ("temperature_c" in payload) lines.push(`Temperature C: ${payload.temperature_c}`);
+      if ("charge_state" in payload) lines.push(`Charge State: ${payload.charge_state}`);
+      if ("charge_current_ma" in payload) lines.push(`Charge Current mA: ${payload.charge_current_ma}`);
       if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));
       output.textContent = lines.join("\n");
     }
@@ -126,6 +153,23 @@
         if ("wirepro_power" in data) data.wirepro_power = Number(data.wirepro_power);
         try { writeResult("Success", await requestJson(form.dataset.endpoint, data)); } catch (error) { writeResult("Error", error); }
       });
+    });
+    document.getElementById("battery-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = await requestJson(`/api/battery/${currentDevice}`);
+        batteryMvField.value = String(payload.battery_mv);
+        batteryTemperatureField.value = String(payload.temperature_c);
+        batteryChargeStateField.value = String(payload.charge_state);
+        batteryChargeCurrentField.value = String(payload.charge_current_ma);
+        writeResult("Success", payload);
+      } catch (error) {
+        batteryMvField.value = "";
+        batteryTemperatureField.value = "";
+        batteryChargeStateField.value = "";
+        batteryChargeCurrentField.value = "";
+        writeResult("Error", error);
+      }
     });
     document.getElementById("stop-rf").addEventListener("click", async () => {
       try { writeResult("Success", await requestJson(`/api/rf/stop/${currentDevice}`)); } catch (error) { writeResult("Error", error); }

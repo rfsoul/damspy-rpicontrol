@@ -286,22 +286,31 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
     @app.post("/api/battery/{device_type}", response_model=BatteryResponse)
     def read_battery(device_type: str, request: Request) -> BatteryResponse:
-        if device_type not in {DeviceType.TX.value, DeviceType.RX.value}:
-            raise HTTPException(status_code=404, detail="Battery read is only supported for Hendrix TX/RX.")
-
         resolved_device_type = DeviceType(device_type)
-        controller = (
-            request.app.state.tx_controller
-            if resolved_device_type == DeviceType.TX
-            else request.app.state.rx_controller
-        )
-        try:
-            battery_info = controller.read_battery_info()
-        except (
-            HendrixDeviceUnavailableError,
-            HendrixDeviceCommunicationError,
-        ) as exc:
-            raise _translate_device_error(exc) from exc
+        if resolved_device_type == DeviceType.WIRELESS_PRO_RX:
+            controller = request.app.state.wireless_pro_rx_controller
+            try:
+                battery_info = controller.read_battery_info()
+            except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+                raise _translate_device_error(exc) from exc
+        elif resolved_device_type in {DeviceType.TX, DeviceType.RX}:
+            controller = (
+                request.app.state.tx_controller
+                if resolved_device_type == DeviceType.TX
+                else request.app.state.rx_controller
+            )
+            try:
+                battery_info = controller.read_battery_info()
+            except (
+                HendrixDeviceUnavailableError,
+                HendrixDeviceCommunicationError,
+            ) as exc:
+                raise _translate_device_error(exc) from exc
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Battery read is only supported for Hendrix TX/RX and Wireless PRO RX.",
+            )
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
         return BatteryResponse(
