@@ -357,6 +357,33 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             read_attempted=True,
         )
 
+    @app.post("/api/charging/{device_type}/{state}", response_model=OperationResponse)
+    def set_tx_charging(device_type: str, state: str, request: Request) -> OperationResponse:
+        if device_type != DeviceType.TX.value:
+            raise HTTPException(status_code=404, detail="Charging control is only supported for Hendrix TX.")
+        if state not in {"enable", "disable"}:
+            raise HTTPException(status_code=404, detail="Unknown charging control state.")
+
+        controller = request.app.state.tx_controller
+        enabled = state == "enable"
+        try:
+            reports_sent = controller.set_charging(enabled=enabled)
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="set_charging",
+            detail=f"Sent charging {'enable' if enabled else 'disable'} command for `tx`.",
+            reports_sent=reports_sent,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
     @app.post("/api/led/{device_type}/flash/{color}", response_model=OperationResponse)
     def flash_tx_led(device_type: str, color: str, request: Request) -> OperationResponse:
         if device_type != DeviceType.TX.value:

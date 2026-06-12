@@ -72,6 +72,13 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color
 </form>
 </section>
 <section>
+<h2>Charging Control</h2>
+<div class="health-row">
+<button id="charging-enable" type="button">Enable Charging</button>
+<button class="secondary" id="charging-disable" type="button">Disable Charging</button>
+</div>
+</section>
+<section>
 <h2>RF Stop</h2>
 <button id="stop-rf" type="button">Stop RF</button>
 </section>
@@ -124,6 +131,8 @@ document.getElementById("battery-form").addEventListener("submit",async event=>{
 
 bindAction("ctx-low",`/api/ctx/${currentDevice}/low`);
 bindAction("ctx-high",`/api/ctx/${currentDevice}/high`);
+bindAction("charging-enable",`/api/charging/${currentDevice}/enable`);
+bindAction("charging-disable",`/api/charging/${currentDevice}/disable`);
 bindAction("stop-rf",`/api/rf/stop/${currentDevice}`);
 flashButtons.red.addEventListener("click",()=>{ledLoopState.activeColor==="red"?void turnOffAllLeds():startFlashLoop("red")});
 flashButtons.green.addEventListener("click",()=>{ledLoopState.activeColor==="green"?void turnOffAllLeds():startFlashLoop("green")});

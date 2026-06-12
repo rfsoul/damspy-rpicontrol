@@ -16,6 +16,7 @@ class StubHendrixController:
         self.charge_current_ma = 300
         self.command_response = command_response
         self.ctx_high: bool | None = None
+        self.charging_enabled: bool | None = None
         self.flash_color_index: int | None = None
         self.rf_start_args: tuple[int, int] | None = None
         self.stop_rf_called = False
@@ -45,6 +46,12 @@ class StubHendrixController:
         self.last_written_reports = [
             bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01 if high else 0x00])
         ]
+        self.last_response = self.command_response
+        return 1
+
+    def set_charging(self, enabled: bool) -> int:
+        self.charging_enabled = enabled
+        self.last_written_reports = [bytes([0x01, 0x55, 0x01 if enabled else 0x00])]
         self.last_response = self.command_response
         return 1
 
@@ -134,6 +141,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/rf/stop/{device_type}", route_paths)
         self.assertIn("/api/battery/{device_type}", route_paths)
         self.assertIn("/api/ctx/{device_type}/{level}", route_paths)
+        self.assertIn("/api/charging/{device_type}/{state}", route_paths)
         self.assertIn("/api/led/{device_type}/flash/{color}", route_paths)
         self.assertIn("/api/led/{device_type}/off/all", route_paths)
         self.assertIn("/api/devices/{device_type}/commands/{command}", route_paths)
@@ -191,6 +199,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("Read Battery", body)
         self.assertIn("CTX LOW", body)
         self.assertIn("CTX HIGH", body)
+        self.assertIn("Enable Charging", body)
+        self.assertIn("Disable Charging", body)
         self.assertIn("Flash LED Red (toggle)", body)
         self.assertIn("Flash LED Green (toggle)", body)
         self.assertIn("Turn Off All LEDs", body)
@@ -461,6 +471,40 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.command_sent, ["15 14 0 2 0 1"])
         self.assertEqual(response.device_response, "16 170 85")
         self.assertTrue(response.read_attempted)
+
+    def test_tx_charging_endpoint_sends_requested_state(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController()
+        app.state.tx_controller = stub_controller
+        charging_route = next(route for route in app.routes if route.path == "/api/charging/{device_type}/{state}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/charging/tx/enable"}
+        )
+
+        response = charging_route.endpoint("tx", "enable", request)
+
+        self.assertEqual(response.operation, "set_charging")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["1 85 1"])
+        self.assertIsNone(response.device_response)
+        self.assertEqual(stub_controller.charging_enabled, True)
+
+    def test_tx_charging_disable_endpoint_sends_requested_state(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController()
+        app.state.tx_controller = stub_controller
+        charging_route = next(route for route in app.routes if route.path == "/api/charging/{device_type}/{state}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/charging/tx/disable"}
+        )
+
+        response = charging_route.endpoint("tx", "disable", request)
+
+        self.assertEqual(response.operation, "set_charging")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["1 85 0"])
+        self.assertIsNone(response.device_response)
+        self.assertEqual(stub_controller.charging_enabled, False)
 
     def test_rx_start_rf_endpoint_returns_device_response_when_present(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

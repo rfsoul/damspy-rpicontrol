@@ -15,6 +15,8 @@ REPORT_ID = 0x0F
 BATTERY_REQUEST_REPORT_ID = 0x01
 BATTERY_RESPONSE_REPORT_ID = 0x02
 BATTERY_COMMAND_ID = 0x61
+CHARGING_CONTROL_REPORT_ID = 0x01
+CHARGING_CONTROL_COMMAND_ID = 0x55
 BATTERY_STATUS_OK = ord("A")
 BATTERY_REQUEST_LENGTH = 17
 BATTERY_RESPONSE_MIN_LENGTH = 12
@@ -99,6 +101,10 @@ def build_rf_stop_report() -> bytes:
     return build_report([0x0D, 0x00])
 
 
+def build_charging_control_report(enabled: bool) -> bytes:
+    return bytes([CHARGING_CONTROL_REPORT_ID, CHARGING_CONTROL_COMMAND_ID, 0x01 if enabled else 0x00])
+
+
 def build_led_test_report(color_index: int, enabled: bool, brightness: int) -> bytes:
     if color_index not in {0, 1, 2, 3}:
         raise ValueError("LED colour index must be 0 (red), 1 (green), 2 (blue), or 3 (white).")
@@ -181,6 +187,9 @@ class HendrixController:
     def set_ctx(self, high: bool) -> int:
         report = build_ctx_high_report() if high else build_ctx_low_report()
         return self._execute([report])
+
+    def set_charging(self, enabled: bool) -> int:
+        return self._execute([build_charging_control_report(enabled)])
 
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
