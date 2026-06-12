@@ -51,7 +51,7 @@ class StubHendrixController:
 
     def set_charging(self, enabled: bool) -> int:
         self.charging_enabled = enabled
-        self.last_written_reports = [bytes([0x01, 0x55, 0x01 if enabled else 0x00])]
+        self.last_written_reports = [bytes([21, 0x55, 0x01 if enabled else 0x00])]
         self.last_response = self.command_response
         return 1
 
@@ -485,7 +485,7 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.operation, "set_charging")
         self.assertEqual(response.reports_sent, 1)
-        self.assertEqual(response.command_sent, ["1 85 1"])
+        self.assertEqual(response.command_sent, ["21 85 1"])
         self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.charging_enabled, True)
 
@@ -502,7 +502,7 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.operation, "set_charging")
         self.assertEqual(response.reports_sent, 1)
-        self.assertEqual(response.command_sent, ["1 85 0"])
+        self.assertEqual(response.command_sent, ["21 85 0"])
         self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.charging_enabled, False)
 

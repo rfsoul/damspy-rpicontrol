@@ -65,8 +65,8 @@ class HendrixDeviceTest(unittest.TestCase):
         self.assertEqual(build_rf_stop_report(), bytes([0x0F, 0x0D, 0x00]))
 
     def test_charging_control_reports_match_requested_bytes(self) -> None:
-        self.assertEqual(build_charging_control_report(enabled=True), bytes([0x01, 0x55, 0x01]))
-        self.assertEqual(build_charging_control_report(enabled=False), bytes([0x01, 0x55, 0x00]))
+        self.assertEqual(build_charging_control_report(enabled=True), bytes([21, 0x55, 0x01]))
+        self.assertEqual(build_charging_control_report(enabled=False), bytes([21, 0x55, 0x00]))
 
     def test_led_test_report_matches_reference_shape(self) -> None:
         self.assertEqual(
@@ -139,7 +139,7 @@ class HendrixDeviceTest(unittest.TestCase):
         reports_sent = controller.set_charging(enabled=True)
 
         self.assertEqual(reports_sent, 1)
-        self.assertEqual(factory.devices[0].writes, [bytes([0x01, 0x55, 0x01])])
+        self.assertEqual(factory.devices[0].writes, [bytes([21, 0x55, 0x01])])
         self.assertTrue(factory.devices[0].closed)
 
     def test_set_charging_disable_sends_single_disable_report(self) -> None:
@@ -149,7 +149,7 @@ class HendrixDeviceTest(unittest.TestCase):
         reports_sent = controller.set_charging(enabled=False)
 
         self.assertEqual(reports_sent, 1)
-        self.assertEqual(factory.devices[0].writes, [bytes([0x01, 0x55, 0x00])])
+        self.assertEqual(factory.devices[0].writes, [bytes([21, 0x55, 0x00])])
         self.assertTrue(factory.devices[0].closed)
 
     def test_rx_start_rf_sends_short_reports(self) -> None:
