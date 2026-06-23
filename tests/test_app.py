@@ -51,7 +51,9 @@ class StubHendrixController:
     def read_serial_number(self) -> str:
         encoded = self.serial_number.encode("ascii")
         self.serial_number_read = True
-        self.last_written_reports = [bytes([13, 0x00, ord("S"), ord("N")] + [0x00] * 14 + [0x00] * 16)]
+        self.last_written_reports = [
+            bytes([13, 0x00, ord("N"), ord("O"), ord("R"), ord("D"), ord("I"), ord("C"), ord("_"), ord("I"), ord("D")] + [0x00] * 7 + [0x00] * 16)
+        ]
         self.last_response = bytes([14, 0x00, ord("A")] + list(encoded) + [0x00] * (16 - len(encoded)) + [0x00] * 15)
         return self.serial_number
 
@@ -441,7 +443,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.device.value, "tx")
         self.assertEqual(response.serial_number, "TXSN0001")
         self.assertEqual(response.reports_sent, 1)
-        self.assertEqual(response.command_sent, ["13 0 83 78 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
+        self.assertEqual(response.command_sent, ["13 0 78 79 82 68 73 67 95 73 68 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
         self.assertEqual(response.device_response, "14 0 65 84 88 83 78 48 48 48 49 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0")
         self.assertTrue(stub_controller.serial_number_read)
 

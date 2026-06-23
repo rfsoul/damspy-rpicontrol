@@ -277,7 +277,7 @@ class HendrixController:
                 return self._read_battery_info(device)
 
     def read_serial_number(self) -> str:
-        return self.read_nvm_item("SN")
+        return self.read_nvm_item("NORDIC_ID")
 
     def read_nvm_item(self, key: str) -> str:
         with self._lock:

@@ -343,7 +343,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
         return SerialNumberResponse(
-            detail="Read serial number for `tx` using NVM key `SN`.",
+            detail="Read serial number for `tx` using NVM key `NORDIC_ID`.",
             device=DeviceType.TX,
             serial_number=serial_number,
             command_sent=command_sent,

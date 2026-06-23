@@ -286,7 +286,10 @@ class HendrixDeviceTest(unittest.TestCase):
         serial_number = controller.read_serial_number()
 
         self.assertEqual(serial_number, "TX008A")
-        self.assertEqual(factory.devices[0].writes, [bytes([13, 0x00, ord("S"), ord("N")] + [0x00] * 14 + [0x00] * 16)])
+        self.assertEqual(
+            factory.devices[0].writes,
+            [bytes([13, 0x00, ord("N"), ord("O"), ord("R"), ord("D"), ord("I"), ord("C"), ord("_"), ord("I"), ord("D")] + [0x00] * 7 + [0x00] * 16)],
+        )
         self.assertTrue(factory.devices[0].closed)
 
     def test_parse_battery_response_rejects_unexpected_status(self) -> None:
