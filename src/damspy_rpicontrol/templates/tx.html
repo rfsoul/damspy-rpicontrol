@@ -24,6 +24,8 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color
 .health-led{width:14px;height:14px;border-radius:9999px;background:#9ca3af;border:1px solid #6b7280;box-shadow:inset 0 0 4px rgba(0,0,0,.45)}
 .health-led.pass{background:#22c55e;border-color:#15803d;box-shadow:0 0 10px rgba(34,197,94,.8)}
 .health-led.fail{background:#ef4444;border-color:#b91c1c;box-shadow:0 0 10px rgba(239,68,68,.8)}
+.split-pane{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.split-pane h3{margin:.1rem 0 .75rem}
 </style>
 </head>
 <body>
@@ -53,13 +55,22 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color
 </div>
 </section>
 <section>
-<h2>RF Start</h2>
+<h2>RF Control</h2>
+<div class="split-pane">
+<div>
+<h3>RF Start</h3>
 <form data-endpoint="/api/rf/start">
 <input name="device" type="hidden" value="tx">
 <label>Channel<input name="channel" type="number" min="0" max="80" value="10"></label>
 <label>Power<input name="power" type="number" min="0" max="10" value="5"></label>
 <button type="submit">Start RF</button>
 </form>
+</div>
+<div>
+<h3>RF Stop</h3>
+<button id="stop-rf" type="button">Stop RF</button>
+</div>
+</div>
 </section>
 <section>
 <h2>Battery</h2>
@@ -72,15 +83,18 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color
 </form>
 </section>
 <section>
+<h2>Device Info</h2>
+<form id="serial-number-form">
+<label>Serial Number<input id="serial-number" name="serial_number" type="text" readonly placeholder="Not read yet"></label>
+<button id="read-serial-number" type="submit">Read Serial Number</button>
+</form>
+</section>
+<section>
 <h2>Charging Control</h2>
 <div class="health-row">
 <button id="charging-enable" type="button">Enable Charging</button>
 <button class="secondary" id="charging-disable" type="button">Disable Charging</button>
 </div>
-</section>
-<section>
-<h2>RF Stop</h2>
-<button id="stop-rf" type="button">Stop RF</button>
 </section>
 <section>
 <h2>Result</h2>
@@ -95,6 +109,7 @@ const batteryMvField=document.getElementById("battery-mv");
 const batteryTemperatureField=document.getElementById("battery-temperature-c");
 const batteryChargeStateField=document.getElementById("battery-charge-state");
 const batteryChargeCurrentField=document.getElementById("battery-charge-current-ma");
+const serialNumberField=document.getElementById("serial-number");
 const flashButtons={
 red:document.getElementById("flash-led-red"),
 green:document.getElementById("flash-led-green")
@@ -107,7 +122,7 @@ const LED_RETRY_DELAY_MS=500;
 
 function setHealthLed(state){healthLed.classList.remove("pass","fail"),"pass"===state?healthLed.classList.add("pass"):"fail"===state&&healthLed.classList.add("fail")}
 
-function writeResult(title,payload){const lines=[title];payload.detail&&lines.push(`Detail: ${payload.detail}`),Array.isArray(payload.command_sent)&&payload.command_sent.length&&(lines.push("Bytes written:"),lines.push(...payload.command_sent)),Object.prototype.hasOwnProperty.call(payload,"device_response")&&(lines.push("Bytes read:"),lines.push(payload.device_response||(payload.read_attempted?"(no bytes returned)":"(no read attempted)"))),"battery_mv"in payload&&lines.push(`Battery mV: ${payload.battery_mv}`),"temperature_c"in payload&&lines.push(`Temperature C: ${payload.temperature_c}`),"charge_state"in payload&&lines.push(`Charge State: ${payload.charge_state}`),"charge_current_ma"in payload&&lines.push(`Charge Current mA: ${payload.charge_current_ma}`),1===lines.length&&lines.push(JSON.stringify(payload,null,2)),output.textContent=lines.join("\n")}
+function writeResult(title,payload){const lines=[title];payload.detail&&lines.push(`Detail: ${payload.detail}`),Array.isArray(payload.command_sent)&&payload.command_sent.length&&(lines.push("Bytes written:"),lines.push(...payload.command_sent)),Object.prototype.hasOwnProperty.call(payload,"device_response")&&(lines.push("Bytes read:"),lines.push(payload.device_response||(payload.read_attempted?"(no bytes returned)":"(no read attempted)"))),"serial_number"in payload&&lines.push(`Serial Number: ${payload.serial_number}`),"battery_mv"in payload&&lines.push(`Battery mV: ${payload.battery_mv}`),"temperature_c"in payload&&lines.push(`Temperature C: ${payload.temperature_c}`),"charge_state"in payload&&lines.push(`Charge State: ${payload.charge_state}`),"charge_current_ma"in payload&&lines.push(`Charge Current mA: ${payload.charge_current_ma}`),1===lines.length&&lines.push(JSON.stringify(payload,null,2)),output.textContent=lines.join("\n")}
 
 async function requestJson(endpoint,payload,method="POST"){const response=await fetch(endpoint,{method,headers:payload?{"Content-Type":"application/json"}:{},body:payload?JSON.stringify(payload):void 0});let body;try{body=await response.json()}catch(error){body={detail:"Response was not valid JSON."}}if(!response.ok)throw body;return body}
 
@@ -128,6 +143,8 @@ async function turnOffAllLeds(){stopFlashLoop();try{writeResult("Success",await 
 document.querySelectorAll("form[data-endpoint]").forEach(form=>{form.addEventListener("submit",async event=>{event.preventDefault();const payload=Object.fromEntries(new FormData(form).entries());"channel"in payload&&(payload.channel=Number(payload.channel)),"power"in payload&&(payload.power=Number(payload.power));try{writeResult("Success",await requestJson(form.dataset.endpoint,payload))}catch(error){writeResult("Error",error)}})});
 
 document.getElementById("battery-form").addEventListener("submit",async event=>{event.preventDefault();try{const payload=await requestJson(`/api/battery/${currentDevice}`);batteryMvField.value=String(payload.battery_mv),batteryTemperatureField.value=String(payload.temperature_c),batteryChargeStateField.value=String(payload.charge_state),batteryChargeCurrentField.value=String(payload.charge_current_ma),writeResult("Success",payload)}catch(error){batteryMvField.value="",batteryTemperatureField.value="",batteryChargeStateField.value="",batteryChargeCurrentField.value="",writeResult("Error",error)}})
+
+document.getElementById("serial-number-form").addEventListener("submit",async event=>{event.preventDefault();try{const payload=await requestJson(`/api/serial-number/${currentDevice}`);serialNumberField.value=payload.serial_number,writeResult("Success",payload)}catch(error){serialNumberField.value="",writeResult("Error",error)}})
 
 bindAction("ctx-low",`/api/ctx/${currentDevice}/low`);
 bindAction("ctx-high",`/api/ctx/${currentDevice}/high`);

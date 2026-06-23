@@ -24,6 +24,17 @@ BATTERY_READ_TIMEOUT_MS = 1000
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
 COMMAND_READ_POLL_INTERVAL_S = 0.01
+READ_ITEM_REPORT_ID = 13
+READ_ITEM_RESPONSE_REPORT_ID = 14
+READ_ITEM_COMMAND_ID = 0x00
+READ_ITEM_KEY_MAX_LENGTH = 16
+READ_ITEM_REQUEST_LENGTH = 34
+READ_ITEM_RESPONSE_LENGTH = 34
+READ_ITEM_RESERVED_LENGTH = 16
+READ_ITEM_RESPONSE_STATUS_OK = ord("A")
+READ_ITEM_RESPONSE_STATUS_ERROR = ord("E")
+READ_ITEM_ERROR_KEY_DOES_NOT_EXIST = 0x06
+READ_ITEM_TIMEOUT_MS = 1000
 LED_TEST_REPORT_ID = 21
 LED_TEST_COMMAND_ID = 0x4E
 LED_TEST_RESERVED_LENGTH = 12
@@ -131,6 +142,17 @@ def build_battery_info_request() -> bytes:
     return bytes([BATTERY_REQUEST_REPORT_ID, BATTERY_COMMAND_ID] + [0x00] * (BATTERY_REQUEST_LENGTH - 2))
 
 
+def build_read_item_report(key: str) -> bytes:
+    key_bytes = key.encode("ascii")
+    if not key_bytes:
+        raise ValueError("Read item key must not be empty.")
+    if len(key_bytes) > READ_ITEM_KEY_MAX_LENGTH:
+        raise ValueError(f"Read item key must be at most {READ_ITEM_KEY_MAX_LENGTH} ASCII bytes long.")
+
+    padded_key = key_bytes + (b"\x00" * (READ_ITEM_KEY_MAX_LENGTH - len(key_bytes)))
+    return bytes([READ_ITEM_REPORT_ID, READ_ITEM_COMMAND_ID]) + padded_key + (b"\x00" * READ_ITEM_RESERVED_LENGTH)
+
+
 def parse_battery_info_response(data: bytes | Sequence[int]) -> BatteryInfo:
     response = bytes(data)
     if len(response) < BATTERY_RESPONSE_MIN_LENGTH:
@@ -154,6 +176,42 @@ def parse_battery_info_response(data: bytes | Sequence[int]) -> BatteryInfo:
         temperature_c=response[7] | (response[8] << 8),
         charge_state_code=response[9],
         charge_current_ma=response[10] | (response[11] << 8),
+    )
+
+
+def parse_read_item_response(data: bytes | Sequence[int], key: str) -> str:
+    response = bytes(data)
+    if len(response) < READ_ITEM_RESPONSE_LENGTH:
+        raise DeviceCommunicationError(
+            f"Read item response was too short: expected at least {READ_ITEM_RESPONSE_LENGTH} bytes, got {len(response)}."
+        )
+    if response[0] != READ_ITEM_RESPONSE_REPORT_ID:
+        raise DeviceCommunicationError(
+            f"Unexpected read item response report ID 0x{response[0]:02X}; expected 0x{READ_ITEM_RESPONSE_REPORT_ID:02X}."
+        )
+    if response[1] != READ_ITEM_COMMAND_ID:
+        raise DeviceCommunicationError(
+            f"Unexpected read item response command ID 0x{response[1]:02X}; expected 0x{READ_ITEM_COMMAND_ID:02X}."
+        )
+
+    status = response[2]
+    if status == READ_ITEM_RESPONSE_STATUS_OK:
+        raw_value = response[3 : 3 + READ_ITEM_KEY_MAX_LENGTH]
+        return raw_value.split(b"\x00", 1)[0].decode("ascii")
+
+    if status == READ_ITEM_RESPONSE_STATUS_ERROR:
+        error_code = response[3]
+        if error_code == READ_ITEM_ERROR_KEY_DOES_NOT_EXIST:
+            raise DeviceCommunicationError(
+                f"Read item failed for key `{key}` with error 0x{error_code:02X}: key does not exist."
+            )
+        raise DeviceCommunicationError(
+            f"Read item failed for key `{key}` with error 0x{error_code:02X}."
+        )
+
+    raise DeviceCommunicationError(
+        f"Read item response status was 0x{status:02X}; expected 0x{READ_ITEM_RESPONSE_STATUS_OK:02X} or "
+        f"0x{READ_ITEM_RESPONSE_STATUS_ERROR:02X}."
     )
 
 
@@ -217,6 +275,16 @@ class HendrixController:
             with self._open_device() as device:
                 self._write_reports(device, [build_battery_info_request()])
                 return self._read_battery_info(device)
+
+    def read_serial_number(self) -> str:
+        return self.read_nvm_item("SN")
+
+    def read_nvm_item(self, key: str) -> str:
+        with self._lock:
+            self._reset_io_trace()
+            with self._open_device() as device:
+                self._write_reports(device, [build_read_item_report(key)])
+                return self._read_nvm_item(device, key)
 
     def _execute(self, reports: Sequence[bytes], inter_write_delay_s: float = INTER_WRITE_DELAY_S) -> int:
         with self._lock:
@@ -322,6 +390,26 @@ class HendrixController:
         response_bytes = bytes(response)
         self._last_response = response_bytes
         return parse_battery_info_response(response_bytes)
+
+    def _read_nvm_item(self, device: HidDevice, key: str) -> str:
+        try:
+            response = device.read(READ_ITEM_RESPONSE_LENGTH, READ_ITEM_TIMEOUT_MS)
+        except Exception as exc:
+            raise DeviceCommunicationError(
+                f"Failed while reading Hendrix NVM item `{key}` ({exc})."
+            ) from exc
+
+        if response is None:
+            self._last_response = None
+            raise DeviceCommunicationError(f"Hendrix NVM item response for `{key}` was empty.")
+
+        response_bytes = bytes(response)
+        if not response_bytes:
+            self._last_response = response_bytes
+            raise DeviceCommunicationError(f"Hendrix NVM item response for `{key}` was empty.")
+
+        self._last_response = response_bytes
+        return parse_read_item_response(response_bytes, key)
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []

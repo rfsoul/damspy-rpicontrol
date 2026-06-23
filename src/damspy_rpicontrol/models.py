@@ -125,6 +125,20 @@ class BatteryResponse(BaseModel):
     read_attempted: bool = False
 
 
+class SerialNumberResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: str = "read_serial_number"
+    status: str = "ok"
+    detail: str
+    device: DeviceType
+    serial_number: str
+    reports_sent: int = 1
+    command_sent: list[str] = Field(default_factory=list)
+    device_response: str | None = None
+    read_attempted: bool = False
+
+
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

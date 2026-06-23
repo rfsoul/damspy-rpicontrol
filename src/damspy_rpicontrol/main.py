@@ -19,6 +19,7 @@ from damspy_rpicontrol.models import (
     HealthResponse,
     HealthcheckResponse,
     OperationResponse,
+    SerialNumberResponse,
     StartRfRequest,
 )
 from damspy_rpicontrol.hendrix_device import (
@@ -321,6 +322,30 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             charge_state=battery_info.charge_state,
             charge_state_code=battery_info.charge_state_code,
             charge_current_ma=battery_info.charge_current_ma,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
+    @app.post("/api/serial-number/{device_type}", response_model=SerialNumberResponse)
+    def read_serial_number(device_type: str, request: Request) -> SerialNumberResponse:
+        if device_type != DeviceType.TX.value:
+            raise HTTPException(status_code=404, detail="Serial-number read is only supported for Hendrix TX.")
+
+        controller = request.app.state.tx_controller
+        try:
+            serial_number = controller.read_serial_number()
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return SerialNumberResponse(
+            detail="Read serial number for `tx` using NVM key `SN`.",
+            device=DeviceType.TX,
+            serial_number=serial_number,
             command_sent=command_sent,
             device_response=device_response,
             read_attempted=True,

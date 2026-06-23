@@ -8,17 +8,24 @@ from damspy_rpicontrol.rxcc_device import RxccController, WirelessProRxControlle
 
 
 class StubHendrixController:
-    def __init__(self, battery_mv: int = 3775, command_response: bytes | None = None) -> None:
+    def __init__(
+        self,
+        battery_mv: int = 3775,
+        command_response: bytes | None = None,
+        serial_number: str = "TX008A1234",
+    ) -> None:
         self.battery_mv = battery_mv
         self.temperature_c = 26
         self.charge_state = "0x01"
         self.charge_state_code = 1
         self.charge_current_ma = 300
         self.command_response = command_response
+        self.serial_number = serial_number
         self.ctx_high: bool | None = None
         self.charging_enabled: bool | None = None
         self.flash_color_index: int | None = None
         self.rf_start_args: tuple[int, int] | None = None
+        self.serial_number_read = False
         self.stop_rf_called = False
         self.last_written_reports: list[bytes] = []
         self.last_response: bytes | None = None
@@ -40,6 +47,13 @@ class StubHendrixController:
                 "charge_current_ma": self.charge_current_ma,
             },
         )()
+
+    def read_serial_number(self) -> str:
+        encoded = self.serial_number.encode("ascii")
+        self.serial_number_read = True
+        self.last_written_reports = [bytes([13, 0x00, ord("S"), ord("N")] + [0x00] * 14 + [0x00] * 16)]
+        self.last_response = bytes([14, 0x00, ord("A")] + list(encoded) + [0x00] * (16 - len(encoded)) + [0x00] * 15)
+        return self.serial_number
 
     def set_ctx(self, high: bool) -> int:
         self.ctx_high = high
@@ -140,6 +154,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/rf/stop", route_paths)
         self.assertIn("/api/rf/stop/{device_type}", route_paths)
         self.assertIn("/api/battery/{device_type}", route_paths)
+        self.assertIn("/api/serial-number/{device_type}", route_paths)
         self.assertIn("/api/ctx/{device_type}/{level}", route_paths)
         self.assertIn("/api/charging/{device_type}/{state}", route_paths)
         self.assertIn("/api/led/{device_type}/flash/{color}", route_paths)
@@ -197,6 +212,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("Charge State", body)
         self.assertIn("Charge Current (mA)", body)
         self.assertIn("Read Battery", body)
+        self.assertIn("Serial Number", body)
+        self.assertIn("Read Serial Number", body)
         self.assertIn("CTX LOW", body)
         self.assertIn("CTX HIGH", body)
         self.assertIn("Enable Charging", body)
@@ -204,6 +221,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("Flash LED Red (toggle)", body)
         self.assertIn("Flash LED Green (toggle)", body)
         self.assertIn("Turn Off All LEDs", body)
+        self.assertLess(body.index("RF Start"), body.index("RF Stop"))
 
     def test_rx_page_uses_rx_specific_template(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -408,6 +426,24 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.reports_sent, 1)
         self.assertEqual(response.command_sent, ["1 97 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
         self.assertEqual(response.device_response, "2 97 65 228 14 100 0 26 0 1 44 1")
+
+    def test_tx_serial_number_endpoint_returns_serial_number(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        stub_controller = StubHendrixController(serial_number="TXSN0001")
+        app.state.tx_controller = stub_controller
+        serial_route = next(route for route in app.routes if route.path == "/api/serial-number/{device_type}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/serial-number/tx"}
+        )
+
+        response = serial_route.endpoint("tx", request)
+
+        self.assertEqual(response.device.value, "tx")
+        self.assertEqual(response.serial_number, "TXSN0001")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["13 0 83 78 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
+        self.assertEqual(response.device_response, "14 0 65 84 88 83 78 48 48 48 49 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0")
+        self.assertTrue(stub_controller.serial_number_read)
 
     def test_wireless_pro_rx_battery_endpoint_returns_battery_mv(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

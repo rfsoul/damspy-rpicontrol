@@ -12,9 +12,11 @@ from damspy_rpicontrol.hendrix_device import (
     build_ctx_high_report,
     build_led_off_reports,
     build_led_test_report,
+    build_read_item_report,
     build_rf_start_report,
     build_rf_stop_report,
     parse_battery_info_response,
+    parse_read_item_response,
 )
 
 
@@ -91,6 +93,12 @@ class HendrixDeviceTest(unittest.TestCase):
             bytes([0x01, 0x61] + [0x00] * 15),
         )
 
+    def test_read_item_request_matches_reference_shape(self) -> None:
+        self.assertEqual(
+            build_read_item_report("SN"),
+            bytes([13, 0x00, ord("S"), ord("N")] + [0x00] * 14 + [0x00] * 16),
+        )
+
     def test_parse_battery_response_reads_documented_fields(self) -> None:
         battery_info = parse_battery_info_response(
             bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])
@@ -106,6 +114,18 @@ class HendrixDeviceTest(unittest.TestCase):
             ),
         )
         self.assertEqual(battery_info.charge_state, "0x01")
+
+    def test_parse_read_item_response_returns_ascii_string(self) -> None:
+        serial_number = parse_read_item_response(
+            bytes([14, 0x00, ord("A"), ord("T"), ord("X"), ord("1"), ord("2"), ord("3")] + [0x00] * 28),
+            "SN",
+        )
+
+        self.assertEqual(serial_number, "TX123")
+
+    def test_parse_read_item_response_rejects_missing_key(self) -> None:
+        with self.assertRaises(DeviceCommunicationError):
+            parse_read_item_response(bytes([14, 0x00, ord("E"), 0x06] + [0x00] * 30), "SN")
 
     def test_start_rf_sends_single_start_report(self) -> None:
         factory = DeviceFactory()
@@ -258,6 +278,16 @@ class HendrixDeviceTest(unittest.TestCase):
 
         with self.assertRaises(DeviceCommunicationError):
             controller.read_battery_mv()
+
+    def test_read_serial_number_writes_request_then_parses_response(self) -> None:
+        factory = DeviceFactory(reads=[bytes([14, 0x00, ord("A"), ord("T"), ord("X"), ord("0"), ord("0"), ord("8"), ord("A")] + [0x00] * 27)])
+        controller = HendrixController(product_id=0x008A, device_factory=factory, backend_name="test")
+
+        serial_number = controller.read_serial_number()
+
+        self.assertEqual(serial_number, "TX008A")
+        self.assertEqual(factory.devices[0].writes, [bytes([13, 0x00, ord("S"), ord("N")] + [0x00] * 14 + [0x00] * 16)])
+        self.assertTrue(factory.devices[0].closed)
 
     def test_parse_battery_response_rejects_unexpected_status(self) -> None:
         with self.assertRaises(DeviceCommunicationError):
