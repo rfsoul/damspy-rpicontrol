@@ -9,6 +9,8 @@ from pathlib import Path
 
 VID = "19f7"
 SUPPORTED_PRODUCTS = {
+    "0056": "RODE Wireless PRO TX",
+    "0058": "RODE Wireless PRO RX",
     "008a": "Hendrix TX",
     "008b": "Hendrix RX",
     "008c": "RODE RXCC",
@@ -223,7 +225,7 @@ def main():
 
     print_section("HIDAPI OPEN TESTS")
     if not mapped_supported_products:
-        print("FAIL: No supported Hendrix/RXCC devices were mapped to hidraw nodes")
+        print("FAIL: No supported Hendrix/RXCC/Wireless PRO devices were mapped to hidraw nodes")
         sys.exit(1)
 
     hidapi_failures = []

@@ -23,6 +23,11 @@ from damspy_rpicontrol.models import (
 VENDOR_ID = 0x19F7
 RXCC_PRODUCT_ID = 0x008C
 WIRELESS_PRO_RX_PRODUCT_ID = 0x0058
+WIRELESS_PRO_TX_PRODUCT_ID = 0x0056
+WIRELESS_PRO_PRODUCT_IDS = (
+    WIRELESS_PRO_RX_PRODUCT_ID,
+    WIRELESS_PRO_TX_PRODUCT_ID,
+)
 REPORT_ID = 0x0F
 COMMAND_RESPONSE_LENGTH = 64
 COMMAND_READ_TIMEOUT_MS = 200
@@ -67,7 +72,31 @@ _ANTENNA_LEVELS: dict[AntennaPath, int] = {
 }
 
 
-def detect_hid_backend(product_id: int = RXCC_PRODUCT_ID) -> tuple[DeviceFactory | None, str]:
+def _normalise_product_ids(product_id: int | Sequence[int]) -> tuple[int, ...]:
+    if isinstance(product_id, int):
+        return (product_id,)
+
+    product_ids = tuple(product_id)
+    if not product_ids:
+        raise ValueError("At least one HID product ID is required.")
+    return product_ids
+
+
+def _open_hidapi_device(hidapi_module, product_ids: Sequence[int]) -> HidDevice:
+    last_error: Exception | None = None
+
+    for current_product_id in product_ids:
+        try:
+            return hidapi_module.Device(vendor_id=VENDOR_ID, product_id=current_product_id)
+        except Exception as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No HID product IDs were provided.")
+
+
+def detect_hid_backend(product_id: int | Sequence[int] = RXCC_PRODUCT_ID) -> tuple[DeviceFactory | None, str]:
     """
     Force the exact backend family that the known-good standalone scripts use:
     hidapi.Device(vendor_id=..., product_id=...)
@@ -77,8 +106,9 @@ def detect_hid_backend(product_id: int = RXCC_PRODUCT_ID) -> tuple[DeviceFactory
     except Exception:
         return None, "unavailable"
 
+    product_ids = _normalise_product_ids(product_id)
     return (
-        lambda: hidapi_module.Device(vendor_id=VENDOR_ID, product_id=product_id),
+        lambda: _open_hidapi_device(hidapi_module, product_ids),
         "hidapi.Device",
     )
 
@@ -134,13 +164,14 @@ def antenna_reports(path: AntennaPath) -> list[bytes]:
 class RxccController:
     def __init__(
         self,
-        product_id: int = RXCC_PRODUCT_ID,
+        product_id: int | Sequence[int] = RXCC_PRODUCT_ID,
         device_factory: DeviceFactory | None = None,
         backend_name: str | None = None,
     ) -> None:
-        self.product_id = product_id
+        self.product_ids = _normalise_product_ids(product_id)
+        self.product_id = self.product_ids[0]
         if device_factory is None:
-            device_factory, detected_backend = detect_hid_backend(product_id=product_id)
+            device_factory, detected_backend = detect_hid_backend(product_id=self.product_ids)
             self._device_factory = device_factory
             self.backend_name = backend_name or detected_backend
         else:
@@ -269,7 +300,7 @@ class RxccController:
 class WirelessProRxController(RxccController):
     def __init__(
         self,
-        product_id: int = WIRELESS_PRO_RX_PRODUCT_ID,
+        product_id: int | Sequence[int] = WIRELESS_PRO_PRODUCT_IDS,
         device_factory: DeviceFactory | None = None,
         backend_name: str | None = None,
     ) -> None:

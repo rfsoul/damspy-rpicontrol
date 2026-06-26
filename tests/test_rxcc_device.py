@@ -5,12 +5,15 @@ from damspy_rpicontrol.models import AntennaPath, FrontendMode
 from damspy_rpicontrol.rxcc_device import (
     DeviceCommunicationError,
     RxccController,
+    VENDOR_ID,
+    WIRELESS_PRO_PRODUCT_IDS,
     WirelessProRxController,
     antenna_reports,
     build_gpio_report,
     build_rf_start_report,
     build_rf_stop_report,
     build_wireless_pro_rf_start_report,
+    detect_hid_backend,
     frontend_mode_reports,
 )
 
@@ -46,6 +49,23 @@ class DeviceFactory:
         device = RecordingDevice(reads=self.reads)
         self.devices.append(device)
         return device
+
+
+class FakeHidDevice:
+    def close(self) -> None:
+        return None
+
+
+class FakeHidApiModule:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, int]] = []
+        self.device = FakeHidDevice()
+
+    def Device(self, vendor_id: int, product_id: int) -> FakeHidDevice:
+        self.calls.append((vendor_id, product_id))
+        if product_id == WIRELESS_PRO_PRODUCT_IDS[0]:
+            raise OSError("primary product ID unavailable")
+        return self.device
 
 
 class RxccDeviceTest(unittest.TestCase):
@@ -200,6 +220,25 @@ class RxccDeviceTest(unittest.TestCase):
 
         with self.assertRaises(DeviceCommunicationError):
             controller.read_battery_mv()
+
+    def test_detect_hid_backend_tries_wireless_pro_fallback_product_id(self) -> None:
+        hidapi_module = FakeHidApiModule()
+
+        with unittest.mock.patch("damspy_rpicontrol.rxcc_device.importlib.import_module", return_value=hidapi_module):
+            factory, backend_name = detect_hid_backend(product_id=WIRELESS_PRO_PRODUCT_IDS)
+
+        self.assertEqual(backend_name, "hidapi.Device")
+        self.assertIsNotNone(factory)
+        device = factory()
+
+        self.assertIs(device, hidapi_module.device)
+        self.assertEqual(
+            hidapi_module.calls,
+            [
+                (VENDOR_ID, WIRELESS_PRO_PRODUCT_IDS[0]),
+                (VENDOR_ID, WIRELESS_PRO_PRODUCT_IDS[1]),
+            ],
+        )
 
 
 if __name__ == "__main__":

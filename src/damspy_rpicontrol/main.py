@@ -33,7 +33,7 @@ from damspy_rpicontrol.rxcc_device import (
     DeviceCommunicationError,
     DeviceUnavailableError,
     RxccController,
-    WIRELESS_PRO_RX_PRODUCT_ID,
+    WIRELESS_PRO_PRODUCT_IDS,
     WirelessProRxController,
 )
 
@@ -80,7 +80,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
     )
     app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
     app.state.controller = controller or RxccController()
-    app.state.wireless_pro_rx_controller = WirelessProRxController(product_id=WIRELESS_PRO_RX_PRODUCT_ID)
+    app.state.wireless_pro_rx_controller = WirelessProRxController(product_id=WIRELESS_PRO_PRODUCT_IDS)
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
 
