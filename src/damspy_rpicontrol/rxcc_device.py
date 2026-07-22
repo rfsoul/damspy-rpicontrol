@@ -28,6 +28,12 @@ from damspy_rpicontrol.models import (
 
 VENDOR_ID = 0x19F7
 RXCC_PRODUCT_ID = 0x008C
+RXCC_USB_HUB_ALIAS_VENDOR_ID = 0x1A86
+RXCC_USB_HUB_ALIAS_PRODUCT_ID = 0x8091
+RXCC_DEVICE_IDS = (
+    (VENDOR_ID, RXCC_PRODUCT_ID),
+    (RXCC_USB_HUB_ALIAS_VENDOR_ID, RXCC_USB_HUB_ALIAS_PRODUCT_ID),
+)
 WIRELESS_PRO_RX_PRODUCT_ID = 0x0058
 WIRELESS_PRO_TX_PRODUCT_ID = 0x0056
 WIRELESS_PRO_PRODUCT_IDS = (
@@ -64,6 +70,7 @@ class HidDevice(Protocol):
 
 
 DeviceFactory = Callable[[], HidDevice]
+DeviceIdentity = tuple[int, int]
 
 
 _FRONTEND_MODE_LEVELS: dict[FrontendMode, tuple[int, int, int]] = {
@@ -78,22 +85,35 @@ _ANTENNA_LEVELS: dict[AntennaPath, int] = {
 }
 
 
-def _normalise_product_ids(product_id: int | Sequence[int]) -> tuple[int, ...]:
+def _normalise_device_ids(
+    product_id: int | Sequence[int] | Sequence[DeviceIdentity],
+) -> tuple[DeviceIdentity, ...]:
     if isinstance(product_id, int):
-        return (product_id,)
+        return ((VENDOR_ID, product_id),)
 
-    product_ids = tuple(product_id)
-    if not product_ids:
+    device_entries = tuple(product_id)
+    if not device_entries:
         raise ValueError("At least one HID product ID is required.")
-    return product_ids
+
+    first_entry = device_entries[0]
+    if isinstance(first_entry, int):
+        return tuple((VENDOR_ID, current_product_id) for current_product_id in device_entries)
+
+    normalised_device_ids: list[DeviceIdentity] = []
+    for entry in device_entries:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            raise ValueError("HID device IDs must be provided as (vendor_id, product_id) pairs.")
+        vendor_id, current_product_id = entry
+        normalised_device_ids.append((vendor_id, current_product_id))
+    return tuple(normalised_device_ids)
 
 
-def _open_hidapi_device(hidapi_module, product_ids: Sequence[int]) -> HidDevice:
+def _open_hidapi_device(hidapi_module, device_ids: Sequence[DeviceIdentity]) -> HidDevice:
     last_error: Exception | None = None
 
-    for current_product_id in product_ids:
+    for current_vendor_id, current_product_id in device_ids:
         try:
-            return hidapi_module.Device(vendor_id=VENDOR_ID, product_id=current_product_id)
+            return hidapi_module.Device(vendor_id=current_vendor_id, product_id=current_product_id)
         except Exception as exc:
             last_error = exc
 
@@ -102,7 +122,9 @@ def _open_hidapi_device(hidapi_module, product_ids: Sequence[int]) -> HidDevice:
     raise RuntimeError("No HID product IDs were provided.")
 
 
-def detect_hid_backend(product_id: int | Sequence[int] = RXCC_PRODUCT_ID) -> tuple[DeviceFactory | None, str]:
+def detect_hid_backend(
+    product_id: int | Sequence[int] | Sequence[DeviceIdentity] = RXCC_DEVICE_IDS,
+) -> tuple[DeviceFactory | None, str]:
     """
     Force the exact backend family that the known-good standalone scripts use:
     hidapi.Device(vendor_id=..., product_id=...)
@@ -112,9 +134,9 @@ def detect_hid_backend(product_id: int | Sequence[int] = RXCC_PRODUCT_ID) -> tup
     except Exception:
         return None, "unavailable"
 
-    product_ids = _normalise_product_ids(product_id)
+    device_ids = _normalise_device_ids(product_id)
     return (
-        lambda: _open_hidapi_device(hidapi_module, product_ids),
+        lambda: _open_hidapi_device(hidapi_module, device_ids),
         "hidapi.Device",
     )
 
@@ -170,14 +192,15 @@ def antenna_reports(path: AntennaPath) -> list[bytes]:
 class RxccController:
     def __init__(
         self,
-        product_id: int | Sequence[int] = RXCC_PRODUCT_ID,
+        product_id: int | Sequence[int] | Sequence[DeviceIdentity] = RXCC_DEVICE_IDS,
         device_factory: DeviceFactory | None = None,
         backend_name: str | None = None,
     ) -> None:
-        self.product_ids = _normalise_product_ids(product_id)
+        self.device_ids = _normalise_device_ids(product_id)
+        self.product_ids = tuple(current_product_id for _, current_product_id in self.device_ids)
         self.product_id = self.product_ids[0]
         if device_factory is None:
-            device_factory, detected_backend = detect_hid_backend(product_id=self.product_ids)
+            device_factory, detected_backend = detect_hid_backend(product_id=self.device_ids)
             self._device_factory = device_factory
             self.backend_name = backend_name or detected_backend
         else:

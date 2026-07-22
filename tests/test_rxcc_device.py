@@ -4,6 +4,7 @@ import unittest.mock
 from damspy_rpicontrol.models import AntennaPath, FrontendMode
 from damspy_rpicontrol.rxcc_device import (
     DeviceCommunicationError,
+    RXCC_DEVICE_IDS,
     RxccController,
     VENDOR_ID,
     WIRELESS_PRO_PRODUCT_IDS,
@@ -57,14 +58,15 @@ class FakeHidDevice:
 
 
 class FakeHidApiModule:
-    def __init__(self) -> None:
+    def __init__(self, unavailable_pairs: set[tuple[int, int]] | None = None) -> None:
         self.calls: list[tuple[int, int]] = []
         self.device = FakeHidDevice()
+        self.unavailable_pairs = set(unavailable_pairs or set())
 
     def Device(self, vendor_id: int, product_id: int) -> FakeHidDevice:
         self.calls.append((vendor_id, product_id))
-        if product_id == WIRELESS_PRO_PRODUCT_IDS[0]:
-            raise OSError("primary product ID unavailable")
+        if (vendor_id, product_id) in self.unavailable_pairs:
+            raise OSError("requested HID identity unavailable")
         return self.device
 
 
@@ -286,7 +288,7 @@ class RxccDeviceTest(unittest.TestCase):
             controller.read_battery_mv()
 
     def test_detect_hid_backend_tries_wireless_pro_fallback_product_id(self) -> None:
-        hidapi_module = FakeHidApiModule()
+        hidapi_module = FakeHidApiModule(unavailable_pairs={(VENDOR_ID, WIRELESS_PRO_PRODUCT_IDS[0])})
 
         with unittest.mock.patch("damspy_rpicontrol.rxcc_device.importlib.import_module", return_value=hidapi_module):
             factory, backend_name = detect_hid_backend(product_id=WIRELESS_PRO_PRODUCT_IDS)
@@ -301,6 +303,25 @@ class RxccDeviceTest(unittest.TestCase):
             [
                 (VENDOR_ID, WIRELESS_PRO_PRODUCT_IDS[0]),
                 (VENDOR_ID, WIRELESS_PRO_PRODUCT_IDS[1]),
+            ],
+        )
+
+    def test_detect_hid_backend_tries_rxcc_usb_hub_alias_when_primary_id_is_missing(self) -> None:
+        hidapi_module = FakeHidApiModule(unavailable_pairs={RXCC_DEVICE_IDS[0]})
+
+        with unittest.mock.patch("damspy_rpicontrol.rxcc_device.importlib.import_module", return_value=hidapi_module):
+            factory, backend_name = detect_hid_backend()
+
+        self.assertEqual(backend_name, "hidapi.Device")
+        self.assertIsNotNone(factory)
+        device = factory()
+
+        self.assertIs(device, hidapi_module.device)
+        self.assertEqual(
+            hidapi_module.calls,
+            [
+                RXCC_DEVICE_IDS[0],
+                RXCC_DEVICE_IDS[1],
             ],
         )
 

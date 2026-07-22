@@ -208,6 +208,16 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(body.count("value=\"40\""), 2)
         self.assertEqual(body.count("value=\"10\""), 2)
 
+    def test_health_endpoint_reports_rxcc_alias_support(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        health_route = next(route for route in app.routes if route.path == "/health")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "GET", "path": "/health"})
+
+        response = health_route.endpoint(request)
+
+        self.assertEqual(response.vendor_id, "0x19F7 or 0x1A86")
+        self.assertEqual(response.product_id, "0x008C or 0x8091")
+
     def test_tx_page_uses_tx_specific_template(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
         device_route = next(route for route in app.routes if route.path == "/devices/{device_type}")

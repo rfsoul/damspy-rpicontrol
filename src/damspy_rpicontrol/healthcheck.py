@@ -7,14 +7,15 @@ import sys
 from pathlib import Path
 
 
-VID = "19f7"
-SUPPORTED_PRODUCTS = {
-    "0056": "RODE Wireless PRO TX",
-    "0058": "RODE Wireless PRO RX",
-    "008a": "Hendrix TX",
-    "008b": "Hendrix RX",
-    "008c": "RODE RXCC",
+SUPPORTED_DEVICE_IDS = {
+    ("19f7", "0056"): "RODE Wireless PRO TX",
+    ("19f7", "0058"): "RODE Wireless PRO RX",
+    ("19f7", "008a"): "Hendrix TX",
+    ("19f7", "008b"): "Hendrix RX",
+    ("19f7", "008c"): "RODE RXCC",
+    ("1a86", "8091"): "RODE RXCC (QinHeng USB HUB alias)",
 }
+SUPPORTED_PRODUCTS = {product_id: label for (_, product_id), label in SUPPORTED_DEVICE_IDS.items()}
 
 
 def run_command(cmd):
@@ -34,7 +35,7 @@ def print_section(title):
     print(f"===== {title} =====")
 
 
-def find_19f7_lsusb_lines():
+def find_supported_lsusb_lines():
     code, stdout, stderr = run_command(["lsusb"])
     if code != 0:
         print("FAIL: Could not run lsusb")
@@ -44,14 +45,11 @@ def find_19f7_lsusb_lines():
 
     lines = []
     for line in stdout.splitlines():
-        if f"ID {VID}:" in line.lower() or f"ID {VID}:" in line:
-            lines.append(line)
-
-    # safer case-insensitive fallback
-    if not lines:
-        for line in stdout.splitlines():
-            if f"id {VID}:" in line.lower():
+        lowered_line = line.lower()
+        for vendor_id, product_id in SUPPORTED_DEVICE_IDS:
+            if f"id {vendor_id}:{product_id}" in lowered_line:
                 lines.append(line)
+                break
 
     return lines
 
@@ -124,14 +122,14 @@ def load_hidapi_module():
         return None, str(exc)
 
 
-def test_hidapi_open(product_id):
+def test_hidapi_open(vendor_id, product_id):
     hidapi_module, error = load_hidapi_module()
     if hidapi_module is None:
         return False, f"hidapi import failed ({error})"
 
     device = None
     try:
-        device = hidapi_module.Device(vendor_id=int(VID, 16), product_id=int(product_id, 16))
+        device = hidapi_module.Device(vendor_id=int(vendor_id, 16), product_id=int(product_id, 16))
         set_nonblocking = getattr(device, "set_nonblocking", None)
         if callable(set_nonblocking):
             set_nonblocking(True)
@@ -152,10 +150,11 @@ def main():
     print(f"Time: {date_out if date_out else 'Unknown'}")
     print()
 
-    print_section("19F7 USB DEVICES")
-    lsusb_lines = find_19f7_lsusb_lines()
+    print_section("SUPPORTED USB DEVICES")
+    lsusb_lines = find_supported_lsusb_lines()
     if not lsusb_lines:
-        print(f"FAIL: No USB devices with vendor {VID} found in lsusb")
+        supported_list = ", ".join(f"{vendor}:{product}" for vendor, product in SUPPORTED_DEVICE_IDS)
+        print(f"FAIL: No supported USB devices found in lsusb ({supported_list})")
         sys.exit(1)
 
     for line in lsusb_lines:
@@ -177,8 +176,8 @@ def main():
     print()
 
     print_section("HID MAPPING")
-    found_any_19f7_hid = False
-    mapped_supported_products = []
+    found_any_supported_hid = False
+    mapped_supported_devices = []
 
     if not hidraw_nodes:
         print("No hidraw nodes found")
@@ -192,15 +191,16 @@ def main():
             if not info:
                 continue
 
-            if info["vendor"] != VID:
+            device_key = (info["vendor"], info["product_id"])
+            if device_key not in SUPPORTED_DEVICE_IDS:
                 continue
 
-            found_any_19f7_hid = True
-            if info["product_id"] in SUPPORTED_PRODUCTS:
-                mapped_supported_products.append(info["product_id"])
+            found_any_supported_hid = True
+            mapped_supported_devices.append(device_key)
             print(node)
             print(f"  usb path: {info['usb_path']}")
             print(f"  vid:pid: {info['vendor']}:{info['product_id']}")
+            print(f"  label: {SUPPORTED_DEVICE_IDS[device_key]}")
             if info["manufacturer"]:
                 print(f"  manufacturer: {info['manufacturer']}")
             if info["product"]:
@@ -219,24 +219,24 @@ def main():
                 print(f"  open test: FAIL ({err})")
             print()
 
-    if not found_any_19f7_hid:
-        print("No hidraw nodes mapped to vendor 19f7 devices")
+    if not found_any_supported_hid:
+        print("No hidraw nodes mapped to supported device identities")
         print()
 
     print_section("HIDAPI OPEN TESTS")
-    if not mapped_supported_products:
+    if not mapped_supported_devices:
         print("FAIL: No supported Hendrix/RXCC/Wireless PRO devices were mapped to hidraw nodes")
         sys.exit(1)
 
     hidapi_failures = []
-    for product_id in sorted(set(mapped_supported_products)):
-        label = SUPPORTED_PRODUCTS.get(product_id, product_id)
-        ok, err = test_hidapi_open(product_id)
+    for vendor_id, product_id in sorted(set(mapped_supported_devices)):
+        label = SUPPORTED_DEVICE_IDS[(vendor_id, product_id)]
+        ok, err = test_hidapi_open(vendor_id, product_id)
         if ok:
-            print(f"{label} ({VID}:{product_id})  hidapi open: PASS")
+            print(f"{label} ({vendor_id}:{product_id})  hidapi open: PASS")
         else:
-            hidapi_failures.append((product_id, err))
-            print(f"{label} ({VID}:{product_id})  hidapi open: FAIL ({err})")
+            hidapi_failures.append(((vendor_id, product_id), err))
+            print(f"{label} ({vendor_id}:{product_id})  hidapi open: FAIL ({err})")
     print()
 
     if hidapi_failures:
@@ -245,7 +245,7 @@ def main():
         sys.exit(1)
 
     print_section("RESULT")
-    print("PASS: Supported 19f7 device nodes are present and hidapi can open them.")
+    print("PASS: Supported device nodes are present and hidapi can open them.")
 
 
 if __name__ == "__main__":

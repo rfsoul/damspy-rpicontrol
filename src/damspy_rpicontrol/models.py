@@ -146,8 +146,8 @@ class HealthResponse(BaseModel):
     service: str = "damspy-rpicontrol"
     hid_backend: str
     device: str = "RODE RXCC"
-    vendor_id: str = "0x19F7"
-    product_id: str = "0x008C"
+    vendor_id: str = "0x19F7 or 0x1A86"
+    product_id: str = "0x008C or 0x8091"
 
 
 class HealthcheckResponse(BaseModel):
