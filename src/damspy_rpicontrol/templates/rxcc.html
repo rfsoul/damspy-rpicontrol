@@ -272,6 +272,7 @@
     function writeResult(title, payload) {
       const lines = [title];
       if (payload.detail) lines.push(`Detail: ${payload.detail}`);
+      if ("http_status" in payload) lines.push(`HTTP Status: ${payload.http_status}`);
       if (Array.isArray(payload.command_sent) && payload.command_sent.length) {
         lines.push("Bytes written:");
         lines.push(...payload.command_sent);
@@ -284,12 +285,24 @@
       if ("temperature_c" in payload) lines.push(`Temperature C: ${payload.temperature_c}`);
       if ("charge_state" in payload) lines.push(`Charge State: ${payload.charge_state}`);
       if ("charge_current_ma" in payload) lines.push(`Charge Current mA: ${payload.charge_current_ma}`);
+      if ("raw_response" in payload) lines.push(`Raw response: ${payload.raw_response}`);
       if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));
       output.textContent = lines.join("\n");
     }
     async function requestJson(endpoint, payload, method = "POST") {
       const response = await fetch(endpoint, { method, headers: payload ? { "Content-Type": "application/json" } : {}, body: payload ? JSON.stringify(payload) : undefined });
-      let body; try { body = await response.json(); } catch (error) { body = { detail: "Response was not valid JSON." }; }
+      const text = await response.text();
+      let body;
+      try {
+        body = text ? JSON.parse(text) : {};
+      } catch (error) {
+        throw {
+          detail: "Response was not valid JSON.",
+          http_status: response.status,
+          raw_response: text || "(empty response)",
+        };
+      }
+      if (!response.ok && !Object.prototype.hasOwnProperty.call(body, "http_status")) body.http_status = response.status;
       if (!response.ok) throw body; return body;
     }
     document.querySelectorAll("form[data-endpoint]").forEach((form) => {

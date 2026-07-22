@@ -201,6 +201,26 @@ class RxccDeviceTest(unittest.TestCase):
         self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 78, 0x00, 0xFC])])
         self.assertTrue(factory.devices[0].closed)
 
+    def test_rxcc_read_battery_writes_request_then_parses_response(self) -> None:
+        factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])])
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        battery_info = controller.read_battery_info()
+
+        self.assertEqual(battery_info.battery_mv, 3775)
+        self.assertEqual(battery_info.temperature_c, 26)
+        self.assertEqual(battery_info.charge_state_code, 1)
+        self.assertEqual(battery_info.charge_current_ma, 300)
+        self.assertEqual(factory.devices[0].writes, [bytes([0x01, 0x61] + [0x00] * 15)])
+        self.assertTrue(factory.devices[0].closed)
+
+    def test_rxcc_read_battery_rejects_none_response(self) -> None:
+        factory = DeviceFactory(reads=[None])
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        with self.assertRaises(DeviceCommunicationError):
+            controller.read_battery_mv()
+
     def test_wireless_pro_read_battery_writes_request_then_parses_response(self) -> None:
         factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])])
         controller = WirelessProRxController(device_factory=factory, backend_name="test")

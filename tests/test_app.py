@@ -435,8 +435,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.device_response, "2 97 65 228 14 100 0 26 0 1 44 1")
 
     def test_rxcc_battery_endpoint_returns_battery_mv(self) -> None:
-        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
-        app.state.controller = StubHendrixController(battery_mv=3766)
+        factory = RxccDeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xB6, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])])
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
         battery_route = next(route for route in app.routes if route.path == "/api/battery/{device_type}")
         request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/battery/rxcc"})
 
@@ -450,7 +450,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.charge_current_ma, 300)
         self.assertEqual(response.reports_sent, 1)
         self.assertEqual(response.command_sent, ["1 97 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
-        self.assertEqual(response.device_response, "2 97 65 228 14 100 0 26 0 1 44 1")
+        self.assertEqual(response.device_response, "2 97 65 182 14 100 0 26 0 1 44 1")
 
     def test_tx_serial_number_endpoint_returns_serial_number(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

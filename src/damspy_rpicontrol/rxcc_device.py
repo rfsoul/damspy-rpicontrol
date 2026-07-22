@@ -209,6 +209,16 @@ class RxccController:
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
 
+    def read_battery_mv(self) -> int:
+        return self.read_battery_info().battery_mv
+
+    def read_battery_info(self) -> BatteryInfo:
+        with self._lock:
+            self._reset_io_trace()
+            with self._open_device() as device:
+                self._write_reports(device, [build_battery_info_request()])
+                return self._read_battery_info(device)
+
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
             self._reset_io_trace()
@@ -291,6 +301,22 @@ class RxccController:
                 return None
 
             time.sleep(COMMAND_READ_POLL_INTERVAL_S)
+
+    def _read_battery_info(self, device: HidDevice) -> BatteryInfo:
+        try:
+            response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
+        except Exception as exc:
+            raise DeviceCommunicationError(
+                f"Failed while reading RXCC battery response ({exc})."
+            ) from exc
+
+        if response is None:
+            self._last_response = None
+            raise DeviceCommunicationError("RXCC battery response was empty.")
+
+        response_bytes = bytes(response)
+        self._last_response = response_bytes
+        return parse_battery_info_response(response_bytes)
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []
