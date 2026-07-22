@@ -241,6 +241,21 @@ class RxccDeviceTest(unittest.TestCase):
         with self.assertRaises(DeviceCommunicationError):
             controller.read_battery_mv()
 
+    def test_read_serial_number_writes_request_then_parses_response(self) -> None:
+        factory = DeviceFactory(
+            reads=[bytes([14, 0x00, ord("A"), ord("R"), ord("X"), ord("C"), ord("C"), ord("0"), ord("0"), ord("8"), ord("C")] + [0x00] * 23)]
+        )
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        serial_number = controller.read_serial_number()
+
+        self.assertEqual(serial_number, "RXCC008C")
+        self.assertEqual(
+            factory.devices[0].writes,
+            [bytes([13, 0x00, ord("N"), ord("O"), ord("R"), ord("D"), ord("I"), ord("C"), ord("_"), ord("I"), ord("D")] + [0x00] * 7 + [0x00] * 16)],
+        )
+        self.assertTrue(factory.devices[0].closed)
+
     def test_wireless_pro_read_battery_writes_request_then_parses_response(self) -> None:
         factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])])
         controller = WirelessProRxController(device_factory=factory, backend_name="test")

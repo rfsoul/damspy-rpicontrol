@@ -331,22 +331,32 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
     @app.post("/api/serial-number/{device_type}", response_model=SerialNumberResponse)
     def read_serial_number(device_type: str, request: Request) -> SerialNumberResponse:
-        if device_type != DeviceType.TX.value:
-            raise HTTPException(status_code=404, detail="Serial-number read is only supported for Hendrix TX.")
-
-        controller = request.app.state.tx_controller
-        try:
-            serial_number = controller.read_serial_number()
-        except (
-            HendrixDeviceUnavailableError,
-            HendrixDeviceCommunicationError,
-        ) as exc:
-            raise _translate_device_error(exc) from exc
+        resolved_device_type = DeviceType(device_type)
+        if resolved_device_type == DeviceType.RXCC:
+            controller = _resolve_rxcc_family_controller(request, resolved_device_type)
+            try:
+                serial_number = controller.read_serial_number()
+            except (
+                DeviceUnavailableError,
+                DeviceCommunicationError,
+            ) as exc:
+                raise _translate_device_error(exc) from exc
+        elif resolved_device_type == DeviceType.TX:
+            controller = request.app.state.tx_controller
+            try:
+                serial_number = controller.read_serial_number()
+            except (
+                HendrixDeviceUnavailableError,
+                HendrixDeviceCommunicationError,
+            ) as exc:
+                raise _translate_device_error(exc) from exc
+        else:
+            raise HTTPException(status_code=404, detail="Serial-number read is only supported for Hendrix TX and RXCC.")
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
         return SerialNumberResponse(
-            detail="Read serial number for `tx` using NVM key `NORDIC_ID`.",
-            device=DeviceType.TX,
+            detail=f"Read serial number for `{resolved_device_type.value}` using NVM key `NORDIC_ID`.",
+            device=resolved_device_type,
             serial_number=serial_number,
             command_sent=command_sent,
             device_response=device_response,

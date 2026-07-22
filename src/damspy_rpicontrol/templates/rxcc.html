@@ -258,6 +258,16 @@
     </section>
 
     <section>
+      <h2>Device Info</h2>
+      <form id="serial-number-form">
+        <label>Serial Number
+          <input id="serial-number" name="serial_number" type="text" readonly placeholder="Not read yet">
+        </label>
+        <button id="read-serial-number" type="submit">Read Serial Number</button>
+      </form>
+    </section>
+
+    <section>
       <h2>Charging Control (Experimental)</h2>
       <div class="health-row">
         <button id="charging-enable" type="button">Enable Charging</button>
@@ -276,6 +286,7 @@
     const batteryTemperatureField = document.getElementById("battery-temperature-c");
     const batteryChargeStateField = document.getElementById("battery-charge-state");
     const batteryChargeCurrentField = document.getElementById("battery-charge-current-ma");
+    const serialNumberField = document.getElementById("serial-number");
     function setHealthLed(status) { healthLed.classList.remove("pass", "fail"); if (status === "pass") healthLed.classList.add("pass"); else if (status === "fail") healthLed.classList.add("fail"); }
     function writeResult(title, payload) {
       const lines = [title];
@@ -293,6 +304,7 @@
       if ("temperature_c" in payload) lines.push(`Temperature C: ${payload.temperature_c}`);
       if ("charge_state" in payload) lines.push(`Charge State: ${payload.charge_state}`);
       if ("charge_current_ma" in payload) lines.push(`Charge Current mA: ${payload.charge_current_ma}`);
+      if ("serial_number" in payload) lines.push(`Serial Number: ${payload.serial_number}`);
       if ("raw_response" in payload) lines.push(`Raw response: ${payload.raw_response}`);
       if (lines.length === 1) lines.push(JSON.stringify(payload, null, 2));
       output.textContent = lines.join("\n");
@@ -336,6 +348,17 @@
         batteryTemperatureField.value = "";
         batteryChargeStateField.value = "";
         batteryChargeCurrentField.value = "";
+        writeResult("Error", error);
+      }
+    });
+    document.getElementById("serial-number-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = await requestJson(`/api/serial-number/${currentDevice}`);
+        serialNumberField.value = payload.serial_number;
+        writeResult("Success", payload);
+      } catch (error) {
+        serialNumberField.value = "";
         writeResult("Error", error);
       }
     });

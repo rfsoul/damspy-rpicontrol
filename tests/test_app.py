@@ -200,6 +200,8 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("Charge State", body)
         self.assertIn("Charge Current (mA)", body)
         self.assertIn("Read Battery", body)
+        self.assertIn("Serial Number", body)
+        self.assertIn("Read Serial Number", body)
         self.assertIn("Charging Control (Experimental)", body)
         self.assertIn("Enable Charging", body)
         self.assertIn("Disable Charging", body)
@@ -472,6 +474,24 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.command_sent, ["13 0 78 79 82 68 73 67 95 73 68 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
         self.assertEqual(response.device_response, "14 0 65 84 88 83 78 48 48 48 49 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0")
         self.assertTrue(stub_controller.serial_number_read)
+
+    def test_rxcc_serial_number_endpoint_returns_serial_number(self) -> None:
+        factory = RxccDeviceFactory(
+            reads=[bytes([14, 0x00, ord("A"), ord("R"), ord("X"), ord("C"), ord("C"), ord("0"), ord("0"), ord("8"), ord("C")] + [0x00] * 23)]
+        )
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        serial_route = next(route for route in app.routes if route.path == "/api/serial-number/{device_type}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/serial-number/rxcc"}
+        )
+
+        response = serial_route.endpoint("rxcc", request)
+
+        self.assertEqual(response.device.value, "rxcc")
+        self.assertEqual(response.serial_number, "RXCC008C")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["13 0 78 79 82 68 73 67 95 73 68 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
+        self.assertEqual(response.device_response, "14 0 65 82 88 67 67 48 48 56 67 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0")
 
     def test_wireless_pro_rx_battery_endpoint_returns_battery_mv(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

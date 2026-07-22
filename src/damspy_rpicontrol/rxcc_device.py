@@ -13,7 +13,11 @@ from damspy_rpicontrol.hendrix_device import (
     BatteryInfo,
     build_battery_info_request,
     build_charging_control_report,
+    build_read_item_report,
     parse_battery_info_response,
+    parse_read_item_response,
+    READ_ITEM_RESPONSE_LENGTH,
+    READ_ITEM_TIMEOUT_MS,
 )
 from damspy_rpicontrol.models import (
     AntennaPath,
@@ -223,6 +227,16 @@ class RxccController:
                 self._write_reports(device, [build_battery_info_request()])
                 return self._read_battery_info(device)
 
+    def read_serial_number(self) -> str:
+        return self.read_nvm_item("NORDIC_ID")
+
+    def read_nvm_item(self, key: str) -> str:
+        with self._lock:
+            self._reset_io_trace()
+            with self._open_device() as device:
+                self._write_reports(device, [build_read_item_report(key)])
+                return self._read_nvm_item(device, key)
+
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
             self._reset_io_trace()
@@ -321,6 +335,26 @@ class RxccController:
         response_bytes = bytes(response)
         self._last_response = response_bytes
         return parse_battery_info_response(response_bytes)
+
+    def _read_nvm_item(self, device: HidDevice, key: str) -> str:
+        try:
+            response = device.read(READ_ITEM_RESPONSE_LENGTH, READ_ITEM_TIMEOUT_MS)
+        except Exception as exc:
+            raise DeviceCommunicationError(
+                f"Failed while reading RXCC NVM item `{key}` ({exc})."
+            ) from exc
+
+        if response is None:
+            self._last_response = None
+            raise DeviceCommunicationError(f"RXCC NVM item response for `{key}` was empty.")
+
+        response_bytes = bytes(response)
+        if not response_bytes:
+            self._last_response = response_bytes
+            raise DeviceCommunicationError(f"RXCC NVM item response for `{key}` was empty.")
+
+        self._last_response = response_bytes
+        return parse_read_item_response(response_bytes, key)
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []
