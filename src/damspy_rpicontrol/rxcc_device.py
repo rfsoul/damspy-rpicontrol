@@ -12,6 +12,7 @@ from damspy_rpicontrol.hendrix_device import (
     BATTERY_REQUEST_LENGTH,
     BatteryInfo,
     build_battery_info_request,
+    build_charging_control_report,
     parse_battery_info_response,
 )
 from damspy_rpicontrol.models import (
@@ -208,6 +209,9 @@ class RxccController:
 
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
+
+    def set_charging(self, enabled: bool) -> int:
+        return self._execute([build_charging_control_report(enabled)])
 
     def read_battery_mv(self) -> int:
         return self.read_battery_info().battery_mv

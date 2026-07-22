@@ -257,6 +257,14 @@
       </form>
     </section>
 
+    <section>
+      <h2>Charging Control (Experimental)</h2>
+      <div class="health-row">
+        <button id="charging-enable" type="button">Enable Charging</button>
+        <button class="secondary" id="charging-disable" type="button">Disable Charging</button>
+      </div>
+    </section>
+
     <section><h2>RF Stop</h2><button id="stop-rf" type="button">Stop RF</button></section>
     <section><h2>Result</h2><pre id="output">Ready.</pre></section>
   </main>
@@ -337,6 +345,12 @@
         const level = button.dataset.gpioLevel;
         try { writeResult("Success", await requestJson(`/api/rxcc/gpio/${pin}/${level}`)); } catch (error) { writeResult("Error", error); }
       });
+    });
+    document.getElementById("charging-enable").addEventListener("click", async () => {
+      try { writeResult("Success", await requestJson(`/api/charging/${currentDevice}/enable`)); } catch (error) { writeResult("Error", error); }
+    });
+    document.getElementById("charging-disable").addEventListener("click", async () => {
+      try { writeResult("Success", await requestJson(`/api/charging/${currentDevice}/disable`)); } catch (error) { writeResult("Error", error); }
     });
     document.getElementById("stop-rf").addEventListener("click", async () => {
       try { writeResult("Success", await requestJson("/api/rf/stop")); } catch (error) { writeResult("Error", error); }

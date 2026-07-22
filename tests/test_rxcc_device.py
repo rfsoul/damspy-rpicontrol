@@ -161,6 +161,26 @@ class RxccDeviceTest(unittest.TestCase):
         self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x03, 0x00, 10, 0x00, 5])])
         self.assertTrue(factory.devices[0].closed)
 
+    def test_set_charging_enable_sends_single_enable_report(self) -> None:
+        factory = DeviceFactory()
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        reports_sent = controller.set_charging(enabled=True)
+
+        self.assertEqual(reports_sent, 1)
+        self.assertEqual(factory.devices[0].writes, [bytes([21, 0x55, 0x01])])
+        self.assertTrue(factory.devices[0].closed)
+
+    def test_set_charging_disable_sends_single_disable_report(self) -> None:
+        factory = DeviceFactory()
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        reports_sent = controller.set_charging(enabled=False)
+
+        self.assertEqual(reports_sent, 1)
+        self.assertEqual(factory.devices[0].writes, [bytes([21, 0x55, 0x00])])
+        self.assertTrue(factory.devices[0].closed)
+
     def test_apply_gpio_records_device_response_when_present(self) -> None:
         factory = DeviceFactory(reads=[bytes([0xAA, 0x55])])
         controller = RxccController(device_factory=factory, backend_name="test")

@@ -200,6 +200,9 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("Charge State", body)
         self.assertIn("Charge Current (mA)", body)
         self.assertIn("Read Battery", body)
+        self.assertIn("Charging Control (Experimental)", body)
+        self.assertIn("Enable Charging", body)
+        self.assertIn("Disable Charging", body)
         self.assertEqual(body.count("value=\"40\""), 2)
         self.assertEqual(body.count("value=\"10\""), 2)
 
@@ -566,6 +569,40 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.command_sent, ["21 85 0"])
         self.assertIsNone(response.device_response)
         self.assertEqual(stub_controller.charging_enabled, False)
+
+    def test_rxcc_charging_endpoint_sends_requested_state(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        charging_route = next(route for route in app.routes if route.path == "/api/charging/{device_type}/{state}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/charging/rxcc/enable"}
+        )
+
+        response = charging_route.endpoint("rxcc", "enable", request)
+
+        self.assertEqual(response.operation, "set_charging")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["21 85 1"])
+        self.assertIsNone(response.device_response)
+        self.assertTrue(response.read_attempted)
+        self.assertEqual(factory.devices[0].writes, [bytes([21, 0x55, 0x01])])
+
+    def test_rxcc_charging_disable_endpoint_sends_requested_state(self) -> None:
+        factory = RxccDeviceFactory()
+        app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
+        charging_route = next(route for route in app.routes if route.path == "/api/charging/{device_type}/{state}")
+        request = Request(
+            {"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/charging/rxcc/disable"}
+        )
+
+        response = charging_route.endpoint("rxcc", "disable", request)
+
+        self.assertEqual(response.operation, "set_charging")
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["21 85 0"])
+        self.assertIsNone(response.device_response)
+        self.assertTrue(response.read_attempted)
+        self.assertEqual(factory.devices[0].writes, [bytes([21, 0x55, 0x00])])
 
     def test_rx_start_rf_endpoint_returns_device_response_when_present(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

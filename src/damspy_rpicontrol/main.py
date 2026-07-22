@@ -385,26 +385,37 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         )
 
     @app.post("/api/charging/{device_type}/{state}", response_model=OperationResponse)
-    def set_tx_charging(device_type: str, state: str, request: Request) -> OperationResponse:
-        if device_type != DeviceType.TX.value:
-            raise HTTPException(status_code=404, detail="Charging control is only supported for Hendrix TX.")
+    def set_device_charging(device_type: str, state: str, request: Request) -> OperationResponse:
+        resolved_device_type = DeviceType(device_type)
+        if resolved_device_type not in {DeviceType.TX, DeviceType.RXCC}:
+            raise HTTPException(status_code=404, detail="Charging control is only supported for Hendrix TX and RXCC.")
         if state not in {"enable", "disable"}:
             raise HTTPException(status_code=404, detail="Unknown charging control state.")
 
-        controller = request.app.state.tx_controller
         enabled = state == "enable"
-        try:
-            reports_sent = controller.set_charging(enabled=enabled)
-        except (
-            HendrixDeviceUnavailableError,
-            HendrixDeviceCommunicationError,
-        ) as exc:
-            raise _translate_device_error(exc) from exc
+        if resolved_device_type == DeviceType.RXCC:
+            controller = _resolve_rxcc_family_controller(request, resolved_device_type)
+            try:
+                reports_sent = controller.set_charging(enabled=enabled)
+            except (
+                DeviceUnavailableError,
+                DeviceCommunicationError,
+            ) as exc:
+                raise _translate_device_error(exc) from exc
+        else:
+            controller = request.app.state.tx_controller
+            try:
+                reports_sent = controller.set_charging(enabled=enabled)
+            except (
+                HendrixDeviceUnavailableError,
+                HendrixDeviceCommunicationError,
+            ) as exc:
+                raise _translate_device_error(exc) from exc
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
         return OperationResponse(
             operation="set_charging",
-            detail=f"Sent charging {'enable' if enabled else 'disable'} command for `tx`.",
+            detail=f"Sent charging {'enable' if enabled else 'disable'} command for `{resolved_device_type.value}`.",
             reports_sent=reports_sent,
             command_sent=command_sent,
             device_response=device_response,
