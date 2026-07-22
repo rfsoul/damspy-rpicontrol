@@ -195,6 +195,11 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("Start RF (Full)", body)
         self.assertIn("Start RF Only", body)
         self.assertLess(body.index("Start RF Only"), body.index("Start RF (Full)"))
+        self.assertIn("Battery Voltage (mV)", body)
+        self.assertIn("Temperature (C)", body)
+        self.assertIn("Charge State", body)
+        self.assertIn("Charge Current (mA)", body)
+        self.assertIn("Read Battery", body)
         self.assertEqual(body.count("value=\"40\""), 2)
         self.assertEqual(body.count("value=\"10\""), 2)
 
@@ -421,6 +426,24 @@ class AppStructureTest(unittest.TestCase):
 
         self.assertEqual(response.device.value, "tx")
         self.assertEqual(response.battery_mv, 3812)
+        self.assertEqual(response.temperature_c, 26)
+        self.assertEqual(response.charge_state, "0x01")
+        self.assertEqual(response.charge_state_code, 1)
+        self.assertEqual(response.charge_current_ma, 300)
+        self.assertEqual(response.reports_sent, 1)
+        self.assertEqual(response.command_sent, ["1 97 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"])
+        self.assertEqual(response.device_response, "2 97 65 228 14 100 0 26 0 1 44 1")
+
+    def test_rxcc_battery_endpoint_returns_battery_mv(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.controller = StubHendrixController(battery_mv=3766)
+        battery_route = next(route for route in app.routes if route.path == "/api/battery/{device_type}")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/battery/rxcc"})
+
+        response = battery_route.endpoint("rxcc", request)
+
+        self.assertEqual(response.device.value, "rxcc")
+        self.assertEqual(response.battery_mv, 3766)
         self.assertEqual(response.temperature_c, 26)
         self.assertEqual(response.charge_state, "0x01")
         self.assertEqual(response.charge_state_code, 1)

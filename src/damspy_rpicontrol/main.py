@@ -288,8 +288,10 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
     @app.post("/api/battery/{device_type}", response_model=BatteryResponse)
     def read_battery(device_type: str, request: Request) -> BatteryResponse:
         resolved_device_type = DeviceType(device_type)
-        if resolved_device_type == DeviceType.WIRELESS_PRO_RX:
+        if resolved_device_type in {DeviceType.RXCC, DeviceType.WIRELESS_PRO_RX}:
             controller = request.app.state.wireless_pro_rx_controller
+            if resolved_device_type == DeviceType.RXCC:
+                controller = _resolve_rxcc_family_controller(request, resolved_device_type)
             try:
                 battery_info = controller.read_battery_info()
             except (DeviceUnavailableError, DeviceCommunicationError) as exc:
@@ -310,7 +312,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
         else:
             raise HTTPException(
                 status_code=404,
-                detail="Battery read is only supported for Hendrix TX/RX and Wireless PRO RX.",
+                detail="Battery read is only supported for RXCC, Hendrix TX/RX, and Wireless PRO RX.",
             )
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
