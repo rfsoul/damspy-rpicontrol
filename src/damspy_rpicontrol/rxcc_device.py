@@ -11,6 +11,7 @@ from damspy_rpicontrol.hendrix_device import (
     BATTERY_READ_TIMEOUT_MS,
     BATTERY_REQUEST_LENGTH,
     BatteryInfo,
+    DeviceCommunicationError as HendrixDeviceCommunicationError,
     build_battery_info_request,
     build_charging_control_report,
     build_read_item_report,
@@ -334,7 +335,10 @@ class RxccController:
 
         response_bytes = bytes(response)
         self._last_response = response_bytes
-        return parse_battery_info_response(response_bytes)
+        try:
+            return parse_battery_info_response(response_bytes)
+        except HendrixDeviceCommunicationError as exc:
+            raise DeviceCommunicationError(str(exc)) from exc
 
     def _read_nvm_item(self, device: HidDevice, key: str) -> str:
         try:
@@ -354,7 +358,10 @@ class RxccController:
             raise DeviceCommunicationError(f"RXCC NVM item response for `{key}` was empty.")
 
         self._last_response = response_bytes
-        return parse_read_item_response(response_bytes, key)
+        try:
+            return parse_read_item_response(response_bytes, key)
+        except HendrixDeviceCommunicationError as exc:
+            raise DeviceCommunicationError(str(exc)) from exc
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []

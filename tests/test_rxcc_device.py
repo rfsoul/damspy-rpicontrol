@@ -256,6 +256,15 @@ class RxccDeviceTest(unittest.TestCase):
         )
         self.assertTrue(factory.devices[0].closed)
 
+    def test_read_serial_number_wraps_parser_error_as_rxcc_device_error(self) -> None:
+        factory = DeviceFactory(reads=[bytes([14, 0x00, ord("N")] + [0x00] * 31)])
+        controller = RxccController(device_factory=factory, backend_name="test")
+
+        with self.assertRaises(DeviceCommunicationError) as exc_info:
+            controller.read_serial_number()
+
+        self.assertIn("Read item response status was 0x4E", str(exc_info.exception))
+
     def test_wireless_pro_read_battery_writes_request_then_parses_response(self) -> None:
         factory = DeviceFactory(reads=[bytes([0x02, 0x61, ord("A"), 0xBF, 0x0E, 0x64, 0x00, 0x1A, 0x00, 0x01, 0x2C, 0x01])])
         controller = WirelessProRxController(device_factory=factory, backend_name="test")
