@@ -95,6 +95,12 @@ class DeviceCommandRequest(BaseModel):
     mode: FrontendMode | None = None
 
 
+class RawCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: str = Field(..., min_length=1)
+
+
 class OperationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

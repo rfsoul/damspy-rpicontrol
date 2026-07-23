@@ -19,6 +19,7 @@ from damspy_rpicontrol.models import (
     HealthResponse,
     HealthcheckResponse,
     OperationResponse,
+    RawCommandRequest,
     SerialNumberResponse,
     StartRfRequest,
 )
@@ -28,10 +29,12 @@ from damspy_rpicontrol.hendrix_device import (
     HendrixController,
     RX_PRODUCT_ID,
     TX_PRODUCT_ID,
+    VENDOR_ID as HENDRIX_VENDOR_ID,
 )
 from damspy_rpicontrol.rxcc_device import (
     DeviceCommunicationError,
     DeviceUnavailableError,
+    RXCC_DEVICE_IDS,
     RxccController,
     WIRELESS_PRO_PRODUCT_IDS,
     WirelessProRxController,
@@ -45,17 +48,24 @@ SUPPORTED_WEB_DEVICES: dict[str, str] = {
     "tx": "Hendrix TX 008A",
     "rx": "Hendrix RX 008B",
     "wireless-pro-rx": "RODE Wireless PRO RX 0058",
+    "test-command": "Test Command",
 }
 DEVICE_TEMPLATE_FILES: dict[str, str] = {
     "rxcc": "rxcc.html",
     "tx": "tx.html",
     "rx": "rx.html",
     "wireless-pro-rx": "wireless_pro_rx.html",
+    "test-command": "test_command.html",
 }
 TX_LED_FLASH_COLORS: dict[str, int] = {
     "red": 0,
     "green": 1,
 }
+TEST_COMMAND_DEVICE_IDS = (
+    *RXCC_DEVICE_IDS,
+    (HENDRIX_VENDOR_ID, RX_PRODUCT_ID),
+    (HENDRIX_VENDOR_ID, TX_PRODUCT_ID),
+)
 
 
 def _format_report(report: Sequence[int]) -> str:
@@ -72,6 +82,27 @@ def _format_trace(
     return command_sent, _format_report(response_bytes)
 
 
+def _parse_raw_command(command: str) -> bytes:
+    tokens = command.split()
+    if not tokens:
+        raise HTTPException(status_code=422, detail="Enter at least one byte.")
+
+    parsed_bytes: list[int] = []
+    for token in tokens:
+        try:
+            value = int(token, 10)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid byte `{token}`. Use space-separated decimal values such as `15 13 0`.",
+            ) from exc
+        if value < 0 or value > 255:
+            raise HTTPException(status_code=422, detail=f"Byte `{token}` is out of range. Use values from 0 to 255.")
+        parsed_bytes.append(value)
+
+    return bytes(parsed_bytes)
+
+
 def create_app(controller: RxccController | None = None) -> FastAPI:
     app = FastAPI(
         title="damspy-rpicontrol",
@@ -83,6 +114,7 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
     app.state.wireless_pro_rx_controller = WirelessProRxController(product_id=WIRELESS_PRO_PRODUCT_IDS)
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
+    app.state.test_command_controller = RxccController(product_id=TEST_COMMAND_DEVICE_IDS)
 
     @app.get("/health", response_model=HealthResponse)
     def health(request: Request) -> HealthResponse:
@@ -283,6 +315,26 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             passed=passed,
             exit_code=result.returncode,
             output=output.strip(),
+        )
+
+    @app.post("/api/test-command", response_model=OperationResponse)
+    def send_test_command(payload: RawCommandRequest, request: Request) -> OperationResponse:
+        controller = request.app.state.test_command_controller
+        report = _parse_raw_command(payload.command)
+
+        try:
+            reports_sent = controller.send_raw_report(report)
+        except (DeviceUnavailableError, DeviceCommunicationError) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="send_raw_command",
+            detail="Sent raw HID bytes to the first available supported test device (`rxcc`, `rx`, or `tx`).",
+            reports_sent=reports_sent,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
         )
 
     @app.post("/api/battery/{device_type}", response_model=BatteryResponse)

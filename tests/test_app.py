@@ -3,7 +3,14 @@ import unittest
 from fastapi import Request
 
 from damspy_rpicontrol.main import create_app
-from damspy_rpicontrol.models import AntennaRequest, DeviceCommandRequest, FrontendMode, FrontendModeRequest, StartRfRequest
+from damspy_rpicontrol.models import (
+    AntennaRequest,
+    DeviceCommandRequest,
+    FrontendMode,
+    FrontendModeRequest,
+    RawCommandRequest,
+    StartRfRequest,
+)
 from damspy_rpicontrol.rxcc_device import RxccController, WirelessProRxController
 
 
@@ -163,6 +170,7 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/led/{device_type}/off/all", route_paths)
         self.assertIn("/api/devices/{device_type}/commands/{command}", route_paths)
         self.assertIn("/api/healthcheck", route_paths)
+        self.assertIn("/api/test-command", route_paths)
 
     def test_root_defaults_to_rxcc_page(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
@@ -284,6 +292,19 @@ class AppStructureTest(unittest.TestCase):
         self.assertNotIn("Receiving Mode", body)
         self.assertNotIn("data-gpio-pin", body)
 
+    def test_test_command_page_renders_raw_command_form(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        device_route = next(route for route in app.routes if route.path == "/devices/{device_type}")
+        response = device_route.endpoint("test-command")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.body.decode("utf-8")
+        self.assertIn("Test Command", body)
+        self.assertIn("Space-separated decimal bytes", body)
+        self.assertIn("value=\"15 13 0\"", body)
+        self.assertIn("/api/test-command", body)
+        self.assertIn("Response", body)
+
     def test_rxcc_frontend_mode_endpoint_formats_hendrix_command_byte(self) -> None:
         factory = RxccDeviceFactory()
         app = create_app(controller=RxccController(device_factory=factory, backend_name="test"))
@@ -367,6 +388,21 @@ class AppStructureTest(unittest.TestCase):
         self.assertEqual(response.command_sent, ["15 14 0 2 0 1"])
         self.assertEqual(response.device_response, "165 90")
         self.assertTrue(response.read_attempted)
+
+    def test_test_command_endpoint_sends_raw_report_and_returns_response(self) -> None:
+        factory = RxccDeviceFactory(reads=[bytes([0x10, 0xAA, 0x55])])
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        app.state.test_command_controller = RxccController(device_factory=factory, backend_name="test")
+        raw_command_route = next(route for route in app.routes if route.path == "/api/test-command")
+        request = Request({"type": "http", "app": app, "headers": [], "method": "POST", "path": "/api/test-command"})
+
+        response = raw_command_route.endpoint(RawCommandRequest(command="15 13 0"), request)
+
+        self.assertEqual(response.operation, "send_raw_command")
+        self.assertEqual(response.command_sent, ["15 13 0"])
+        self.assertEqual(response.device_response, "16 170 85")
+        self.assertTrue(response.read_attempted)
+        self.assertEqual(factory.devices[0].writes, [bytes([0x0F, 0x0D, 0x00])])
 
     def test_wireless_pro_rx_start_rf_endpoint_sends_single_embedded_antenna_command(self) -> None:
         factory = RxccDeviceFactory()

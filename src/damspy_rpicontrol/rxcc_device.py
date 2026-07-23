@@ -238,6 +238,9 @@ class RxccController:
     def stop_rf(self) -> int:
         return self._execute([build_rf_stop_report()])
 
+    def send_raw_report(self, report: bytes) -> int:
+        return self._execute([bytes(report)])
+
     def set_charging(self, enabled: bool) -> int:
         return self._execute([build_charging_control_report(enabled)])
 
