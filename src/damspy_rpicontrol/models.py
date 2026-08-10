@@ -101,6 +101,28 @@ class RawCommandRequest(BaseModel):
     command: str = Field(..., min_length=1)
 
 
+class TransportMode(str, Enum):
+    USB = "usb"
+    M5 = "m5"
+
+
+class TransportConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: TransportMode
+    serial_port: str = Field(default="/dev/ttyACM0", min_length=1)
+
+
+class TransportStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: TransportMode
+    serial_port: str
+    available_serial_ports: list[str] = Field(default_factory=list)
+    connected: bool
+    detail: str
+
+
 class OperationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -164,3 +186,8 @@ class HealthcheckResponse(BaseModel):
     passed: bool
     exit_code: int
     output: str
+    transport: TransportMode | None = None
+    connected: bool | None = None
+    vendor_id: str | None = None
+    product_id: str | None = None
+    device_name: str | None = None

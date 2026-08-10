@@ -7,6 +7,8 @@ from typing import Callable, Iterator, Protocol, Sequence
 
 import importlib
 
+from damspy_rpicontrol.m5_transport import M5TransportError
+
 from damspy_rpicontrol.hendrix_device import (
     BATTERY_READ_TIMEOUT_MS,
     BATTERY_REQUEST_LENGTH,
@@ -331,6 +333,8 @@ class RxccController:
         while True:
             try:
                 response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
+            except M5TransportError as exc:
+                raise DeviceCommunicationError(f"M5 HID response failed ({exc}).") from exc
             except Exception:
                 self._last_response = None
                 return None

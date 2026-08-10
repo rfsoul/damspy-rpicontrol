@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import sys
-from typing import Sequence
+from typing import Callable, Sequence
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -22,7 +22,11 @@ from damspy_rpicontrol.models import (
     RawCommandRequest,
     SerialNumberResponse,
     StartRfRequest,
+    TransportConfigRequest,
+    TransportMode,
+    TransportStatusResponse,
 )
+from damspy_rpicontrol.m5_transport import M5SerialHidTransport, M5TransportError
 from damspy_rpicontrol.hendrix_device import (
     DeviceCommunicationError as HendrixDeviceCommunicationError,
     DeviceUnavailableError as HendrixDeviceUnavailableError,
@@ -68,6 +72,30 @@ TEST_COMMAND_DEVICE_IDS = (
 )
 
 
+REMOTE_DEVICE_NAMES = {
+    (0x19F7, 0x0056): "RODE Wireless PRO TX",
+    (0x19F7, 0x0058): "RODE Wireless PRO RX",
+    (0x19F7, 0x008A): "Hendrix TX",
+    (0x19F7, 0x008B): "Hendrix RX",
+    (0x19F7, 0x008C): "RODE RXCC",
+    (0x1A86, 0x8091): "RODE RXCC (QinHeng USB HUB alias)",
+}
+
+def _render_transport_controls() -> str:
+    return """
+<div id="transport-controls" style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;margin-top:.8rem">
+  <label>Connection
+    <select id="transport-mode"><option value="usb">USB</option><option value="m5">M5</option></select>
+  </label>
+  <label>M5 serial port
+    <input id="transport-port" list="transport-ports" value="/dev/ttyACM0" disabled>
+    <datalist id="transport-ports"></datalist>
+  </label>
+  <button id="transport-apply" type="button">Apply connection</button>
+  <span id="transport-status" role="status">Loading connection status...</span>
+</div>
+"""
+
 def _format_report(report: Sequence[int]) -> str:
     return " ".join(str(int(byte)) for byte in report)
 
@@ -103,7 +131,10 @@ def _parse_raw_command(command: str) -> bytes:
     return bytes(parsed_bytes)
 
 
-def create_app(controller: RxccController | None = None) -> FastAPI:
+def create_app(
+    controller: RxccController | None = None,
+    m5_transport_factory: Callable[[str], M5SerialHidTransport] | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="damspy-rpicontrol",
         summary="LAN-local FastAPI service for RODE RXCC control.",
@@ -115,6 +146,83 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
     app.state.test_command_controller = RxccController(product_id=TEST_COMMAND_DEVICE_IDS)
+    app.state.usb_controllers = {
+        "controller": app.state.controller,
+        "wireless_pro_rx_controller": app.state.wireless_pro_rx_controller,
+        "tx_controller": app.state.tx_controller,
+        "rx_controller": app.state.rx_controller,
+        "test_command_controller": app.state.test_command_controller,
+    }
+    app.state.transport_mode = TransportMode.USB
+    app.state.serial_port = "/dev/ttyACM0"
+    app.state.transport_connected = app.state.controller.is_available
+    app.state.transport_detail = "Using direct USB HID."
+    app.state.m5_transport = None
+    app.state.m5_transport_factory = m5_transport_factory or M5SerialHidTransport
+
+    def _serial_ports() -> list[str]:
+        try:
+            from serial.tools import list_ports
+        except ImportError:
+            return []
+        return sorted(port.device for port in list_ports.comports())
+
+    def _transport_status() -> TransportStatusResponse:
+        return TransportStatusResponse(
+            mode=app.state.transport_mode,
+            serial_port=app.state.serial_port,
+            available_serial_ports=_serial_ports(),
+            connected=app.state.transport_connected,
+            detail=app.state.transport_detail,
+        )
+
+    @app.get("/api/transport", response_model=TransportStatusResponse)
+    def get_transport() -> TransportStatusResponse:
+        return _transport_status()
+
+    @app.put("/api/transport", response_model=TransportStatusResponse)
+    def set_transport(payload: TransportConfigRequest) -> TransportStatusResponse:
+        old_m5_transport = app.state.m5_transport
+        if payload.mode == TransportMode.USB:
+            for name, current_controller in app.state.usb_controllers.items():
+                setattr(app.state, name, current_controller)
+            app.state.transport_mode = TransportMode.USB
+            app.state.serial_port = payload.serial_port
+            app.state.transport_connected = app.state.controller.is_available
+            app.state.transport_detail = "Using direct USB HID."
+            app.state.m5_transport = None
+            if old_m5_transport is not None:
+                old_m5_transport.close()
+            return _transport_status()
+
+        transport = app.state.m5_transport_factory(payload.serial_port)
+        device_factory = transport.device_factory
+        app.state.controller = RxccController(device_factory=device_factory, backend_name=transport.backend_name)
+        app.state.wireless_pro_rx_controller = WirelessProRxController(
+            device_factory=device_factory, backend_name=transport.backend_name
+        )
+        app.state.tx_controller = HendrixController(
+            product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
+        )
+        app.state.rx_controller = HendrixController(
+            product_id=RX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
+        )
+        app.state.test_command_controller = RxccController(
+            product_id=TEST_COMMAND_DEVICE_IDS, device_factory=device_factory, backend_name=transport.backend_name
+        )
+        app.state.transport_mode = TransportMode.M5
+        app.state.serial_port = payload.serial_port
+        app.state.m5_transport = transport
+        try:
+            transport.ping()
+            app.state.transport_connected = True
+            app.state.transport_detail = "Connected to the M5 Atom serial tunnel."
+        except M5TransportError as exc:
+            app.state.transport_connected = False
+            app.state.transport_detail = str(exc)
+        if old_m5_transport is not None and old_m5_transport is not transport:
+            old_m5_transport.close()
+        return _transport_status()
 
     @app.get("/health", response_model=HealthResponse)
     def health(request: Request) -> HealthResponse:
@@ -143,6 +251,8 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
 
         html = (TEMPLATE_DIR / DEVICE_TEMPLATE_FILES[device_type]).read_text(encoding="utf-8")
         html = html.replace("__DEVICE_NAV__", " · ".join(nav_links))
+        html = html.replace("</nav>", "</nav>" + _render_transport_controls(), 1)
+        html = html.replace("</body>", "<script src=\"/static/transport.js\"></script></body>")
         if device_type == DeviceType.RXCC.value:
             html = html.replace("__RXCC_GUIDE__", _render_rxcc_guide())
         return HTMLResponse(html)
@@ -297,25 +407,35 @@ def create_app(controller: RxccController | None = None) -> FastAPI:
             read_attempted=True,
         )
 
-    @app.post("/api/healthcheck", response_model=HealthcheckResponse)
+    @app.post("/api/healthcheck", response_model=HealthcheckResponse, response_model_exclude_none=True)
     def run_healthcheck() -> HealthcheckResponse:
-        result = subprocess.run(
-            [sys.executable, str(HEALTHCHECK_SCRIPT_PATH)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        if app.state.transport_mode == TransportMode.M5:
+            transport = app.state.m5_transport
+            try:
+                info = transport.get_remote_device_info()
+                app.state.transport_connected = True
+                app.state.transport_detail = "Connected to the M5 Atom serial tunnel."
+            except M5TransportError as exc:
+                app.state.transport_connected = False
+                app.state.transport_detail = str(exc)
+                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=False, output=f"FAIL: {exc}")
+            if not info.connected:
+                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=False, output="M5 tunnel connected; no USB HID device is attached to the remote Core.")
+            device_name = REMOTE_DEVICE_NAMES.get((info.vendor_id, info.product_id))
+            vendor_id = f"0x{info.vendor_id:04X}"
+            product_id = f"0x{info.product_id:04X}"
+            friendly = device_name or "Unknown USB HID device"
+            return HealthcheckResponse(
+                operation="healthcheck", transport=TransportMode.M5, passed=True, exit_code=0, connected=True,
+                vendor_id=vendor_id, product_id=product_id, device_name=device_name,
+                output=f"PASS: Remote USB HID device connected: {friendly} ({vendor_id}:{product_id}).",
+            )
+
+        result = subprocess.run([sys.executable, str(HEALTHCHECK_SCRIPT_PATH)], capture_output=True, text=True, check=False)
         output = result.stdout
         if result.stderr:
             output = f"{output}\n{result.stderr}" if output else result.stderr
-
-        passed = result.returncode == 0
-        return HealthcheckResponse(
-            operation="healthcheck",
-            passed=passed,
-            exit_code=result.returncode,
-            output=output.strip(),
-        )
+        return HealthcheckResponse(operation="healthcheck", passed=result.returncode == 0, exit_code=result.returncode, output=output.strip())
 
     @app.post("/api/test-command", response_model=OperationResponse)
     def send_test_command(payload: RawCommandRequest, request: Request) -> OperationResponse:
