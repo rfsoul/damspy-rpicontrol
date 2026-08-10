@@ -21,7 +21,7 @@ class FakeM5Transport:
     def __init__(self, port: str, info: RemoteDeviceInfo | None = None) -> None:
         self.port = port
         self.backend_name = f"m5-serial:{port}"
-        self.info = info or RemoteDeviceInfo(True, 0x19F7, 0x008C)
+        self.info = info or RemoteDeviceInfo(True, True, 0x19F7, 0x008C)
         self.pinged = False
         self.closed = False
 
@@ -63,7 +63,7 @@ class TransportSelectionTest(unittest.TestCase):
         self.assertEqual(status.serial_port, "/dev/ttyACM0")
 
     def test_m5_selection_reuses_one_transport_without_vid_pid_gating(self) -> None:
-        app, transports = self.make_app(RemoteDeviceInfo(True, 0x9999, 0x1234))
+        app, transports = self.make_app(RemoteDeviceInfo(True, True, 0x9999, 0x1234))
         route = next(route for route in app.routes if route.path == "/api/transport" and "PUT" in route.methods)
 
         status = route.endpoint(TransportConfigRequest(mode="m5", serial_port="/dev/ttyACM7"))
@@ -78,7 +78,7 @@ class TransportSelectionTest(unittest.TestCase):
         self.assertEqual(app.state.tx_controller.product_id, 0x008A)
 
     def test_m5_health_reports_known_remote_identity(self) -> None:
-        app, _ = self.make_app(RemoteDeviceInfo(True, 0x19F7, 0x008C))
+        app, _ = self.make_app(RemoteDeviceInfo(True, True, 0x19F7, 0x008C))
         select_route = next(route for route in app.routes if route.path == "/api/transport" and "PUT" in route.methods)
         health_route = next(route for route in app.routes if route.path == "/api/healthcheck")
         select_route.endpoint(TransportConfigRequest(mode="m5", serial_port="/dev/ttyACM0"))
@@ -87,12 +87,13 @@ class TransportSelectionTest(unittest.TestCase):
 
         self.assertTrue(response.passed)
         self.assertTrue(response.connected)
+        self.assertTrue(response.hid_ready)
         self.assertEqual(response.vendor_id, "0x19F7")
         self.assertEqual(response.product_id, "0x008C")
         self.assertEqual(response.device_name, "RODE RXCC")
 
     def test_remote_identity_mismatch_does_not_change_selected_controller(self) -> None:
-        app, _ = self.make_app(RemoteDeviceInfo(True, 0x9999, 0x1234))
+        app, _ = self.make_app(RemoteDeviceInfo(True, True, 0x9999, 0x1234))
         select_route = next(route for route in app.routes if route.path == "/api/transport" and "PUT" in route.methods)
         health_route = next(route for route in app.routes if route.path == "/api/healthcheck")
         select_route.endpoint(TransportConfigRequest(mode="m5", serial_port="/dev/ttyACM0"))

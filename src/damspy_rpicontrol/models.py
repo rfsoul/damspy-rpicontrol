@@ -188,6 +188,7 @@ class HealthcheckResponse(BaseModel):
     output: str
     transport: TransportMode | None = None
     connected: bool | None = None
+    hid_ready: bool | None = None
     vendor_id: str | None = None
     product_id: str | None = None
     device_name: str | None = None

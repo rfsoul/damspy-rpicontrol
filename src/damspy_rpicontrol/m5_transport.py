@@ -6,13 +6,14 @@ import struct
 import threading
 import time
 from typing import Callable, Protocol
-import zlib
 
 
-PROTOCOL_VERSION = 1
+PROTOCOL_MAGIC = 0xD1
 DEFAULT_BAUD_RATE = 115200
 DEFAULT_REQUEST_TIMEOUT_S = 1.5
-MAX_PAYLOAD_LENGTH = 4096
+READ_TRANSPORT_MARGIN_S = 1.0
+MAX_BODY_LENGTH = 242
+MAX_HID_PAYLOAD_LENGTH = 239
 
 
 class M5TransportError(RuntimeError):
@@ -20,27 +21,34 @@ class M5TransportError(RuntimeError):
 
 
 class MessageType(IntEnum):
-    PING_REQUEST = 1
-    PING_RESPONSE = 2
-    WRITE_REQUEST = 3
-    WRITE_RESPONSE = 4
-    READ_REQUEST = 5
-    READ_RESPONSE = 6
-    DEVICE_INFO_REQUEST = 7
-    DEVICE_INFO_RESPONSE = 8
-    ERROR_RESPONSE = 255
+    WRITE_REQUEST = 0x01
+    WRITE_RESPONSE = 0x02
+    READ_REQUEST = 0x03
+    READ_RESPONSE = 0x04
+    STATUS_REQUEST = 0x05
+    STATUS_RESPONSE = 0x06
+
+
+class Result(IntEnum):
+    OK = 0x00
+    TIMEOUT = 0x01
+    NO_DEVICE = 0x02
+    BUSY = 0x03
+    INVALID_REQUEST = 0x04
+    USB_ERROR = 0x05
 
 
 @dataclass(frozen=True)
 class Frame:
     message_type: MessageType
-    transaction_id: int
-    payload: bytes = b""
+    request_id: int
+    body: bytes = b""
 
 
 @dataclass(frozen=True)
 class RemoteDeviceInfo:
     connected: bool
+    hid_ready: bool
     vendor_id: int | None = None
     product_id: int | None = None
 
@@ -98,40 +106,59 @@ def cobs_decode(data: bytes) -> bytes:
     return bytes(output)
 
 
+def crc16_ccitt_false(data: bytes) -> int:
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return crc
+
+
 def encode_frame(frame: Frame) -> bytes:
-    payload = bytes(frame.payload)
-    if len(payload) > MAX_PAYLOAD_LENGTH:
-        raise M5TransportError(f"M5 payload exceeds {MAX_PAYLOAD_LENGTH} bytes.")
-    header = struct.pack(
-        "<BBHH",
-        PROTOCOL_VERSION,
+    body = bytes(frame.body)
+    if len(body) > MAX_BODY_LENGTH:
+        raise M5TransportError(f"M5 body exceeds {MAX_BODY_LENGTH} bytes.")
+    inner = struct.pack(
+        "<BBIH",
+        PROTOCOL_MAGIC,
         int(frame.message_type),
-        frame.transaction_id,
-        len(payload),
-    )
-    body = header + payload
-    checksum = struct.pack("<I", zlib.crc32(body) & 0xFFFFFFFF)
-    return cobs_encode(body + checksum) + b"\x00"
+        frame.request_id,
+        len(body),
+    ) + body
+    crc = struct.pack("<H", crc16_ccitt_false(inner))
+    return cobs_encode(inner + crc) + b"\x00"
 
 
 def decode_frame(encoded: bytes) -> Frame:
     decoded = cobs_decode(encoded)
     if len(decoded) < 10:
         raise M5TransportError("M5 frame is too short.")
-    version, raw_type, transaction_id, payload_length = struct.unpack("<BBHH", decoded[:6])
-    if version != PROTOCOL_VERSION:
-        raise M5TransportError(f"Unsupported M5 protocol version {version}.")
-    if payload_length > MAX_PAYLOAD_LENGTH or len(decoded) != 6 + payload_length + 4:
-        raise M5TransportError("M5 frame payload length is invalid.")
-    expected_crc = struct.unpack("<I", decoded[-4:])[0]
-    actual_crc = zlib.crc32(decoded[:-4]) & 0xFFFFFFFF
-    if expected_crc != actual_crc:
-        raise M5TransportError("M5 frame CRC check failed.")
+    magic, raw_type, request_id, body_length = struct.unpack("<BBIH", decoded[:8])
+    if magic != PROTOCOL_MAGIC:
+        raise M5TransportError(f"Invalid M5 protocol magic 0x{magic:02X}.")
+    if body_length > MAX_BODY_LENGTH or len(decoded) != 8 + body_length + 2:
+        raise M5TransportError("M5 frame body length is invalid.")
+    expected_crc = struct.unpack("<H", decoded[-2:])[0]
+    if expected_crc != crc16_ccitt_false(decoded[:-2]):
+        raise M5TransportError("M5 frame CRC16 check failed.")
     try:
         message_type = MessageType(raw_type)
     except ValueError as exc:
         raise M5TransportError(f"Unknown M5 message type {raw_type}.") from exc
-    return Frame(message_type, transaction_id, decoded[6:-4])
+    return Frame(message_type, request_id, decoded[8:-2])
+
+
+def _decode_result(raw_result: int, operation: str) -> Result:
+    try:
+        return Result(raw_result)
+    except ValueError as exc:
+        raise M5TransportError(
+            f"M5 {operation} response has unknown result 0x{raw_result:02X}."
+        ) from exc
 
 
 class M5SerialHidDevice:
@@ -139,16 +166,51 @@ class M5SerialHidDevice:
         self._transport = transport
 
     def write(self, data: bytes) -> int:
-        response = self._transport.request(MessageType.WRITE_REQUEST, bytes(data), MessageType.WRITE_RESPONSE)
-        if not response:
-            return len(data)
-        if len(response) != 2:
+        report = bytes(data)
+        if not report:
+            raise M5TransportError("M5 HID writes must not be empty.")
+        if len(report) > MAX_HID_PAYLOAD_LENGTH:
+            raise M5TransportError(
+                f"M5 HID write exceeds the {MAX_HID_PAYLOAD_LENGTH}-byte maximum."
+            )
+        response = self._transport.request(
+            MessageType.WRITE_REQUEST,
+            report,
+            MessageType.WRITE_RESPONSE,
+        )
+        if len(response) != 3:
             raise M5TransportError("M5 write response has an invalid length.")
-        return struct.unpack("<H", response)[0]
+        result = _decode_result(response[0], "write")
+        bytes_written = struct.unpack("<H", response[1:])[0]
+        if result != Result.OK:
+            raise M5TransportError(f"M5 HID write failed: {result.name}.")
+        return bytes_written
 
     def read(self, length: int, timeout_ms: int) -> bytes:
-        payload = struct.pack("<HI", length, timeout_ms)
-        return self._transport.request(MessageType.READ_REQUEST, payload, MessageType.READ_RESPONSE)
+        if length <= 0 or length > MAX_HID_PAYLOAD_LENGTH or timeout_ms <= 0:
+            raise M5TransportError("M5 HID read parameters are invalid.")
+        response = self._transport.request(
+            MessageType.READ_REQUEST,
+            struct.pack("<HI", length, timeout_ms),
+            MessageType.READ_RESPONSE,
+            timeout_s=max(
+                self._transport.request_timeout_s,
+                (timeout_ms / 1000) + READ_TRANSPORT_MARGIN_S,
+            ),
+        )
+        if len(response) < 3:
+            raise M5TransportError("M5 read response is too short.")
+        result = _decode_result(response[0], "read")
+        response_length = struct.unpack("<H", response[1:3])[0]
+        if len(response) != 3 + response_length or response_length > length:
+            raise M5TransportError("M5 read response length is invalid.")
+        if result == Result.TIMEOUT:
+            if response_length != 0:
+                raise M5TransportError("M5 timed-out read included unexpected HID data.")
+            return b""
+        if result != Result.OK:
+            raise M5TransportError(f"M5 HID read failed: {result.name}.")
+        return response[3:]
 
     def close(self) -> None:
         # The shared serial connection remains open across controller operations.
@@ -170,7 +232,7 @@ class M5SerialHidTransport:
         self._serial: SerialEndpoint | None = None
         self._lock = threading.Lock()
         self._receive_buffer = bytearray()
-        self._next_transaction_id = 1
+        self._next_request_id = 1
 
     @property
     def backend_name(self) -> str:
@@ -179,45 +241,46 @@ class M5SerialHidTransport:
     def device_factory(self) -> M5SerialHidDevice:
         return M5SerialHidDevice(self)
 
-    def ping(self) -> None:
-        self.request(MessageType.PING_REQUEST, b"", MessageType.PING_RESPONSE)
-
     def get_remote_device_info(self) -> RemoteDeviceInfo:
-        payload = self.request(
-            MessageType.DEVICE_INFO_REQUEST,
+        body = self.request(
+            MessageType.STATUS_REQUEST,
             b"",
-            MessageType.DEVICE_INFO_RESPONSE,
+            MessageType.STATUS_RESPONSE,
         )
-        if payload == b"\x00":
-            return RemoteDeviceInfo(connected=False)
-        if len(payload) != 5 or payload[0] != 1:
-            raise M5TransportError("M5 device-info response has an invalid payload.")
-        vendor_id, product_id = struct.unpack("<HH", payload[1:])
-        return RemoteDeviceInfo(True, vendor_id, product_id)
+        if len(body) != 6 or body[0] not in {0, 1} or body[1] not in {0, 1}:
+            raise M5TransportError("M5 status response has an invalid body.")
+        vendor_id, product_id = struct.unpack("<HH", body[2:])
+        connected = body[0] == 1
+        hid_ready = body[1] == 1
+        return RemoteDeviceInfo(
+            connected,
+            hid_ready,
+            vendor_id,
+            product_id,
+        )
 
     def request(
         self,
         message_type: MessageType,
-        payload: bytes,
+        body: bytes,
         expected_response_type: MessageType,
+        timeout_s: float | None = None,
     ) -> bytes:
         with self._lock:
-            transaction_id = self._allocate_transaction_id()
+            request_id = self._allocate_request_id()
             endpoint = self._ensure_serial()
-            self._write_all(endpoint, encode_frame(Frame(message_type, transaction_id, payload)))
-            deadline = time.monotonic() + self.request_timeout_s
+            self._write_all(endpoint, encode_frame(Frame(message_type, request_id, body)))
+            deadline = time.monotonic() + (timeout_s or self.request_timeout_s)
             while True:
                 frame = self._read_frame(endpoint, deadline)
-                if frame.transaction_id != transaction_id:
+                if frame.request_id != request_id:
                     continue
-                if frame.message_type == MessageType.ERROR_RESPONSE:
-                    detail = frame.payload.decode("utf-8", errors="replace") or "unspecified remote error"
-                    raise M5TransportError(f"M5 remote error: {detail}")
                 if frame.message_type != expected_response_type:
                     raise M5TransportError(
-                        f"Unexpected M5 response type {frame.message_type.name}; expected {expected_response_type.name}."
+                        f"Unexpected M5 response type {frame.message_type.name}; "
+                        f"expected {expected_response_type.name}."
                     )
-                return frame.payload
+                return frame.body
 
     def close(self) -> None:
         with self._lock:
@@ -228,10 +291,10 @@ class M5SerialHidTransport:
                     self._serial = None
                     self._receive_buffer.clear()
 
-    def _allocate_transaction_id(self) -> int:
-        transaction_id = self._next_transaction_id
-        self._next_transaction_id = 1 if transaction_id == 0xFFFF else transaction_id + 1
-        return transaction_id
+    def _allocate_request_id(self) -> int:
+        request_id = self._next_request_id
+        self._next_request_id = 1 if request_id == 0xFFFFFFFF else request_id + 1
+        return request_id
 
     def _ensure_serial(self) -> SerialEndpoint:
         if self._serial is None:
@@ -275,7 +338,7 @@ class M5SerialHidTransport:
                 raise M5TransportError(f"Failed reading M5 serial port {self.port} ({exc}).") from exc
             if chunk:
                 self._receive_buffer.extend(chunk)
-                if len(self._receive_buffer) > MAX_PAYLOAD_LENGTH + 64:
+                if len(self._receive_buffer) > MAX_BODY_LENGTH + 32:
                     self._receive_buffer.clear()
             else:
                 time.sleep(0.001)

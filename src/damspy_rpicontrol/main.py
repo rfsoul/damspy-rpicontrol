@@ -214,9 +214,13 @@ def create_app(
         app.state.serial_port = payload.serial_port
         app.state.m5_transport = transport
         try:
-            transport.ping()
+            status = transport.get_remote_device_info()
             app.state.transport_connected = True
-            app.state.transport_detail = "Connected to the M5 Atom serial tunnel."
+            app.state.transport_detail = (
+                "Connected to the M5 bridge; remote HID is ready."
+                if status.connected and status.hid_ready
+                else "Connected to the M5 bridge; remote HID is not ready."
+            )
         except M5TransportError as exc:
             app.state.transport_connected = False
             app.state.transport_detail = str(exc)
@@ -414,19 +418,20 @@ def create_app(
             try:
                 info = transport.get_remote_device_info()
                 app.state.transport_connected = True
-                app.state.transport_detail = "Connected to the M5 Atom serial tunnel."
+                app.state.transport_detail = "Connected to the M5 bridge."
             except M5TransportError as exc:
                 app.state.transport_connected = False
                 app.state.transport_detail = str(exc)
                 return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=False, output=f"FAIL: {exc}")
-            if not info.connected:
-                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=False, output="M5 tunnel connected; no USB HID device is attached to the remote Core.")
+            if not info.connected or not info.hid_ready:
+                state = "no USB HID device is attached" if not info.connected else "the USB HID device is not ready"
+                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=info.connected, hid_ready=info.hid_ready, output=f"M5 bridge connected; {state} on the remote Core.")
             device_name = REMOTE_DEVICE_NAMES.get((info.vendor_id, info.product_id))
             vendor_id = f"0x{info.vendor_id:04X}"
             product_id = f"0x{info.product_id:04X}"
             friendly = device_name or "Unknown USB HID device"
             return HealthcheckResponse(
-                operation="healthcheck", transport=TransportMode.M5, passed=True, exit_code=0, connected=True,
+                operation="healthcheck", transport=TransportMode.M5, passed=True, exit_code=0, connected=True, hid_ready=True,
                 vendor_id=vendor_id, product_id=product_id, device_name=device_name,
                 output=f"PASS: Remote USB HID device connected: {friendly} ({vendor_id}:{product_id}).",
             )

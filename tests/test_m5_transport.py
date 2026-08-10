@@ -7,6 +7,9 @@ from damspy_rpicontrol.m5_transport import (
     M5TransportError,
     MessageType,
     RemoteDeviceInfo,
+    Result,
+    cobs_decode,
+    crc16_ccitt_false,
     decode_frame,
     encode_frame,
 )
@@ -41,21 +44,31 @@ class FakeSerial:
 
 
 class M5TransportTest(unittest.TestCase):
-    def test_frame_round_trip_preserves_zero_and_opaque_hid_bytes(self) -> None:
-        frame = Frame(MessageType.WRITE_REQUEST, 42, bytes([0x00, 0x0F, 0xFF, 0x00, 0x55]))
+    def test_crc16_ccitt_false_matches_reference_vector(self) -> None:
+        self.assertEqual(crc16_ccitt_false(b"123456789"), 0x29B1)
 
-        decoded = decode_frame(encode_frame(frame)[:-1])
+    def test_frame_uses_canonical_inner_message_and_little_endian_crc(self) -> None:
+        frame = Frame(MessageType.WRITE_REQUEST, 0x12345678, bytes([0x00, 0x0F, 0xFF]))
 
-        self.assertEqual(decoded, frame)
+        encoded = encode_frame(frame)
+        decoded_serial = cobs_decode(encoded[:-1])
 
-    def test_separate_write_and_read_requests_survive_fragmented_serial_reads(self) -> None:
+        inner = bytes([0xD1, 0x01, 0x78, 0x56, 0x34, 0x12, 0x03, 0x00, 0x00, 0x0F, 0xFF])
+        self.assertEqual(decoded_serial[:-2], inner)
+        self.assertEqual(decoded_serial[-2:], struct.pack("<H", crc16_ccitt_false(inner)))
+        self.assertEqual(decode_frame(encoded[:-1]), frame)
+
+    def test_separate_write_and_read_use_canonical_bodies(self) -> None:
         requests = []
 
         def respond(frame):
             requests.append(frame)
             if frame.message_type == MessageType.WRITE_REQUEST:
-                return encode_frame(Frame(MessageType.WRITE_RESPONSE, frame.transaction_id, struct.pack("<H", len(frame.payload))))
-            return encode_frame(Frame(MessageType.READ_RESPONSE, frame.transaction_id, bytes([0x10, 0xAA, 0x00, 0x55])))
+                body = bytes([Result.OK]) + struct.pack("<H", len(frame.body))
+                return encode_frame(Frame(MessageType.WRITE_RESPONSE, frame.request_id, body))
+            data = bytes([0x10, 0xAA, 0x00, 0x55])
+            body = bytes([Result.OK]) + struct.pack("<H", len(data)) + data
+            return encode_frame(Frame(MessageType.READ_RESPONSE, frame.request_id, body))
 
         endpoint = FakeSerial(respond, chunk_size=1)
         transport = M5SerialHidTransport("/dev/fake", serial_factory=lambda _port, _baud: endpoint)
@@ -67,48 +80,77 @@ class M5TransportTest(unittest.TestCase):
         self.assertEqual(written, 6)
         self.assertEqual(response, bytes([0x10, 0xAA, 0x00, 0x55]))
         self.assertEqual([request.message_type for request in requests], [MessageType.WRITE_REQUEST, MessageType.READ_REQUEST])
-        self.assertEqual(requests[0].payload, bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]))
-        self.assertEqual(requests[1].payload, struct.pack("<HI", 64, 200))
+        self.assertEqual(requests[0].body, bytes([0x0F, 0x03, 0x00, 10, 0x00, 5]))
+        self.assertEqual(requests[1].body, struct.pack("<HI", 64, 200))
 
-    def test_ignores_unrelated_transaction_before_correlated_response(self) -> None:
+    def test_correlated_remote_read_timeout_returns_empty_bytes(self) -> None:
         def respond(frame):
+            body = bytes([Result.TIMEOUT]) + struct.pack("<H", 0)
+            return encode_frame(Frame(MessageType.READ_RESPONSE, frame.request_id, body))
+
+        transport = M5SerialHidTransport("/dev/fake", serial_factory=lambda _port, _baud: FakeSerial(respond))
+
+        self.assertEqual(transport.device_factory().read(64, 200), b"")
+
+    def test_no_correlated_response_raises_transport_timeout(self) -> None:
+        endpoint = FakeSerial(lambda _frame: None)
+        transport = M5SerialHidTransport(
+            "/dev/fake", request_timeout_s=0.01, serial_factory=lambda _port, _baud: endpoint
+        )
+
+        with self.assertRaisesRegex(M5TransportError, "Timed out"):
+            transport.get_remote_device_info()
+
+    def test_no_device_usb_error_busy_and_invalid_request_are_errors(self) -> None:
+        for result in (Result.NO_DEVICE, Result.BUSY, Result.INVALID_REQUEST, Result.USB_ERROR):
+            with self.subTest(result=result):
+                def respond(frame, current_result=result):
+                    body = bytes([current_result]) + struct.pack("<H", 0)
+                    return encode_frame(Frame(MessageType.READ_RESPONSE, frame.request_id, body))
+
+                transport = M5SerialHidTransport(
+                    "/dev/fake", serial_factory=lambda _port, _baud: FakeSerial(respond)
+                )
+                with self.assertRaisesRegex(M5TransportError, result.name):
+                    transport.device_factory().read(64, 200)
+
+    def test_rejects_write_over_239_bytes_before_opening_serial(self) -> None:
+        serial_opened = False
+
+        def serial_factory(_port, _baud):
+            nonlocal serial_opened
+            serial_opened = True
+            raise AssertionError("serial should not open")
+
+        transport = M5SerialHidTransport("/dev/fake", serial_factory=serial_factory)
+
+        with self.assertRaisesRegex(M5TransportError, "239-byte maximum"):
+            transport.device_factory().write(bytes(240))
+        self.assertFalse(serial_opened)
+
+    def test_ignores_uncorrelated_response_before_matching_u32_request_id(self) -> None:
+        def respond(frame):
+            body = bytes([1, 1]) + struct.pack("<HH", 0x19F7, 0x008C)
             return (
-                encode_frame(Frame(MessageType.PING_RESPONSE, frame.transaction_id + 1))
-                + encode_frame(Frame(MessageType.PING_RESPONSE, frame.transaction_id))
+                encode_frame(Frame(MessageType.STATUS_RESPONSE, frame.request_id + 1, body))
+                + encode_frame(Frame(MessageType.STATUS_RESPONSE, frame.request_id, body))
             )
 
         transport = M5SerialHidTransport("/dev/fake", serial_factory=lambda _port, _baud: FakeSerial(respond))
 
-        transport.ping()
+        self.assertTrue(transport.get_remote_device_info().hid_ready)
 
-    def test_remote_device_info_is_diagnostic_data(self) -> None:
+    def test_status_response_reports_usb_hid_state(self) -> None:
         def respond(frame):
-            payload = bytes([1]) + struct.pack("<HH", 0x19F7, 0x008C)
-            return encode_frame(Frame(MessageType.DEVICE_INFO_RESPONSE, frame.transaction_id, payload))
+            body = bytes([1, 1]) + struct.pack("<HH", 0x19F7, 0x008C)
+            return encode_frame(Frame(MessageType.STATUS_RESPONSE, frame.request_id, body))
 
         transport = M5SerialHidTransport("/dev/fake", serial_factory=lambda _port, _baud: FakeSerial(respond))
 
-        self.assertEqual(transport.get_remote_device_info(), RemoteDeviceInfo(True, 0x19F7, 0x008C))
-
-    def test_remote_error_surfaces_cleanly(self) -> None:
-        def respond(frame):
-            return encode_frame(Frame(MessageType.ERROR_RESPONSE, frame.transaction_id, b"Core HID disconnected"))
-
-        transport = M5SerialHidTransport("/dev/fake", serial_factory=lambda _port, _baud: FakeSerial(respond))
-
-        with self.assertRaisesRegex(M5TransportError, "Core HID disconnected"):
-            transport.device_factory().read(64, 200)
-
-    def test_timeout_when_no_correlated_response_arrives(self) -> None:
-        endpoint = FakeSerial(lambda _frame: None)
-        transport = M5SerialHidTransport(
-            "/dev/fake",
-            request_timeout_s=0.01,
-            serial_factory=lambda _port, _baud: endpoint,
+        self.assertEqual(
+            transport.get_remote_device_info(),
+            RemoteDeviceInfo(True, True, 0x19F7, 0x008C),
         )
-
-        with self.assertRaisesRegex(M5TransportError, "Timed out"):
-            transport.ping()
 
 
 if __name__ == "__main__":
