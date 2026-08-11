@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib
+import threading
 import subprocess
 import sys
 from typing import Callable, Sequence
@@ -22,11 +24,13 @@ from damspy_rpicontrol.models import (
     RawCommandRequest,
     SerialNumberResponse,
     StartRfRequest,
+    TransportCaptureRequest,
     TransportConfigRequest,
     TransportMode,
     TransportStatusResponse,
 )
 from damspy_rpicontrol.m5_transport import M5SerialHidTransport, M5TransportError
+from damspy_rpicontrol.transport_capture import run_transport_capture
 from damspy_rpicontrol.hendrix_device import (
     DeviceCommunicationError as HendrixDeviceCommunicationError,
     DeviceUnavailableError as HendrixDeviceUnavailableError,
@@ -70,6 +74,37 @@ TEST_COMMAND_DEVICE_IDS = (
     (HENDRIX_VENDOR_ID, RX_PRODUCT_ID),
     (HENDRIX_VENDOR_ID, TX_PRODUCT_ID),
 )
+
+USB_PROFILE_DEVICE_IDS = {
+    "hendrix-rx": ((HENDRIX_VENDOR_ID, RX_PRODUCT_ID),),
+    "hendrix-tx": ((HENDRIX_VENDOR_ID, TX_PRODUCT_ID),),
+    "wireless-pro-rx": tuple((HENDRIX_VENDOR_ID, pid) for pid in WIRELESS_PRO_PRODUCT_IDS),
+    "rxcc": RXCC_DEVICE_IDS,
+    "hendrix-tx-via-rxcc": RXCC_DEVICE_IDS,
+}
+
+def _detect_usb_identity(profile: str) -> dict:
+    expected_ids = USB_PROFILE_DEVICE_IDS[profile]
+    try:
+        hidapi_module = importlib.import_module("hidapi")
+        entries = hidapi_module.enumerate()
+    except Exception as exc:
+        return {
+            "connected": False, "hid_ready": False, "vid": None, "pid": None, "name": None,
+            "status_error": f"Unable to enumerate USB HID devices: {exc}",
+        }
+    for entry in entries:
+        vendor_id = entry.get("vendor_id")
+        product_id = entry.get("product_id")
+        if (vendor_id, product_id) not in expected_ids:
+            continue
+        raw_name = entry.get("product_string") or entry.get("manufacturer_string")
+        name = raw_name.decode(errors="replace") if isinstance(raw_name, bytes) else raw_name
+        return {
+            "connected": True, "hid_ready": True, "vid": vendor_id, "pid": product_id,
+            "name": name or REMOTE_DEVICE_NAMES.get((vendor_id, product_id)),
+        }
+    return {"connected": False, "hid_ready": False, "vid": None, "pid": None, "name": None}
 
 
 REMOTE_DEVICE_NAMES = {
@@ -134,6 +169,7 @@ def _parse_raw_command(command: str) -> bytes:
 def create_app(
     controller: RxccController | None = None,
     m5_transport_factory: Callable[[str], M5SerialHidTransport] | None = None,
+    usb_identity_provider: Callable[[str], dict] | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="damspy-rpicontrol",
@@ -146,12 +182,18 @@ def create_app(
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
     app.state.test_command_controller = RxccController(product_id=TEST_COMMAND_DEVICE_IDS)
+    app.state.tx_via_rxcc_controller = HendrixController(
+        product_id=TX_PRODUCT_ID,
+        device_factory=app.state.controller._device_factory,
+        backend_name=app.state.controller.backend_name,
+    )
     app.state.usb_controllers = {
         "controller": app.state.controller,
         "wireless_pro_rx_controller": app.state.wireless_pro_rx_controller,
         "tx_controller": app.state.tx_controller,
         "rx_controller": app.state.rx_controller,
         "test_command_controller": app.state.test_command_controller,
+        "tx_via_rxcc_controller": app.state.tx_via_rxcc_controller,
     }
     app.state.transport_mode = TransportMode.USB
     app.state.serial_port = "/dev/ttyACM0"
@@ -159,6 +201,8 @@ def create_app(
     app.state.transport_detail = "Using direct USB HID."
     app.state.m5_transport = None
     app.state.m5_transport_factory = m5_transport_factory or M5SerialHidTransport
+    app.state.usb_identity_provider = usb_identity_provider or _detect_usb_identity
+    app.state.capture_lock = threading.Lock()
 
     def _serial_ports() -> list[str]:
         try:
@@ -210,6 +254,9 @@ def create_app(
         app.state.test_command_controller = RxccController(
             product_id=TEST_COMMAND_DEVICE_IDS, device_factory=device_factory, backend_name=transport.backend_name
         )
+        app.state.tx_via_rxcc_controller = HendrixController(
+            product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
+        )
         app.state.transport_mode = TransportMode.M5
         app.state.serial_port = payload.serial_port
         app.state.m5_transport = transport
@@ -227,6 +274,74 @@ def create_app(
         if old_m5_transport is not None and old_m5_transport is not transport:
             old_m5_transport.close()
         return _transport_status()
+
+    def _capture_controllers(device_factory, backend_name):
+        return {
+            "rxcc": RxccController(device_factory=device_factory, backend_name=backend_name),
+            "wireless-pro-rx": WirelessProRxController(device_factory=device_factory, backend_name=backend_name),
+            "hendrix-tx": HendrixController(product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=backend_name),
+            "hendrix-rx": HendrixController(product_id=RX_PRODUCT_ID, device_factory=device_factory, backend_name=backend_name),
+            "hendrix-tx-via-rxcc": HendrixController(
+                product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=backend_name
+            ),
+        }
+
+    def _capture_controller_map(mode: TransportMode):
+        if mode == TransportMode.USB:
+            return {
+                "rxcc": app.state.usb_controllers["controller"],
+                "wireless-pro-rx": app.state.usb_controllers["wireless_pro_rx_controller"],
+                "hendrix-tx": app.state.usb_controllers["tx_controller"],
+                "hendrix-rx": app.state.usb_controllers["rx_controller"],
+                "hendrix-tx-via-rxcc": app.state.usb_controllers["tx_via_rxcc_controller"],
+            }, None
+        if app.state.transport_mode == TransportMode.M5 and app.state.m5_transport is not None:
+            return _capture_controllers(
+                app.state.m5_transport.device_factory, app.state.m5_transport.backend_name
+            ), None
+        transport = app.state.m5_transport_factory(app.state.serial_port)
+        return _capture_controllers(transport.device_factory, transport.backend_name), transport
+
+    @app.get("/diagnostics/transport-capture", response_class=HTMLResponse)
+    def transport_capture_page() -> HTMLResponse:
+        return HTMLResponse((TEMPLATE_DIR / "transport_capture.html").read_text(encoding="utf-8"))
+
+    @app.post("/api/transport-capture")
+    def capture_transport(payload: TransportCaptureRequest) -> dict:
+        temporary_transport = None
+        with app.state.capture_lock:
+            controllers, temporary_transport = _capture_controller_map(payload.transport)
+            try:
+                if payload.transport == TransportMode.USB:
+                    physical_info = app.state.usb_identity_provider(payload.profile)
+                    serial_port = None
+                else:
+                    transport = temporary_transport or app.state.m5_transport
+                    serial_port = app.state.serial_port
+                    try:
+                        info = transport.get_remote_device_info()
+                        physical_info = {
+                            "connected": info.connected,
+                            "hid_ready": info.hid_ready,
+                            "vid": info.vendor_id,
+                            "pid": info.product_id,
+                            "name": REMOTE_DEVICE_NAMES.get((info.vendor_id, info.product_id)),
+                        }
+                    except Exception as exc:
+                        physical_info = {
+                            "connected": False, "hid_ready": False, "vid": None, "pid": None, "name": None,
+                            "status_error": f"{type(exc).__name__}: {exc}",
+                        }
+                return run_transport_capture(
+                    profile=payload.profile,
+                    transport=payload.transport.value,
+                    controller=controllers[payload.profile],
+                    physical_usb_device=physical_info,
+                    m5_serial_port=serial_port,
+                )
+            finally:
+                if temporary_transport is not None:
+                    temporary_transport.close()
 
     @app.get("/health", response_model=HealthResponse)
     def health(request: Request) -> HealthResponse:
@@ -252,6 +367,7 @@ def create_app(
             href = "/" if key == "rxcc" else f"/devices/{key}"
             is_active = " aria-current='page'" if key == device_type else ""
             nav_links.append(f"<a href='{href}'{is_active}>{label}</a>")
+        nav_links.append("<a href='/diagnostics/transport-capture'>Transport Capture</a>")
 
         html = (TEMPLATE_DIR / DEVICE_TEMPLATE_FILES[device_type]).read_text(encoding="utf-8")
         html = html.replace("__DEVICE_NAV__", " · ".join(nav_links))

@@ -236,6 +236,8 @@ class HendrixController:
         self._lock = threading.Lock()
         self._last_written_reports: list[bytes] = []
         self._last_response: bytes | None = None
+        self._last_read_results: list[bytes | None] = []
+        self._last_hid_events: list[tuple[str, bytes | None]] = []
 
     @property
     def is_available(self) -> bool:
@@ -299,6 +301,13 @@ class HendrixController:
     def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
         return list(self._last_written_reports), self._last_response
 
+    def get_last_io_events(self) -> tuple[list[bytes], list[bytes | None]]:
+        """Return every completed HID write and every HID read result in call order."""
+        return list(self._last_written_reports), list(self._last_read_results)
+
+    def get_last_hid_events(self) -> list[tuple[str, bytes | None]]:
+        return list(self._last_hid_events)
+
     @contextmanager
     def _open_device(self) -> Iterator[HidDevice]:
         if self._device_factory is None:
@@ -347,6 +356,7 @@ class HendrixController:
                 )
 
             self._last_written_reports.append(bytes(report))
+            self._last_hid_events.append(("write", bytes(report)))
             reports_sent += 1
             time.sleep(inter_write_delay_s)
 
@@ -361,6 +371,8 @@ class HendrixController:
         while True:
             try:
                 response = device.read(COMMAND_RESPONSE_LENGTH, COMMAND_READ_TIMEOUT_MS)
+                self._last_read_results.append(None if response is None else bytes(response))
+                self._last_hid_events.append(("read", None if response is None else bytes(response)))
             except M5TransportError as exc:
                 raise DeviceCommunicationError(f"M5 HID response failed ({exc}).") from exc
             except Exception:
@@ -382,6 +394,8 @@ class HendrixController:
     def _read_battery_info(self, device: HidDevice) -> BatteryInfo:
         try:
             response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
+            self._last_read_results.append(None if response is None else bytes(response))
+            self._last_hid_events.append(("read", None if response is None else bytes(response)))
         except Exception as exc:
             raise DeviceCommunicationError(
                 f"Failed while reading Hendrix battery response ({exc})."
@@ -398,6 +412,8 @@ class HendrixController:
     def _read_nvm_item(self, device: HidDevice, key: str) -> str:
         try:
             response = device.read(READ_ITEM_RESPONSE_LENGTH, READ_ITEM_TIMEOUT_MS)
+            self._last_read_results.append(None if response is None else bytes(response))
+            self._last_hid_events.append(("read", None if response is None else bytes(response)))
         except Exception as exc:
             raise DeviceCommunicationError(
                 f"Failed while reading Hendrix NVM item `{key}` ({exc})."
@@ -418,3 +434,5 @@ class HendrixController:
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []
         self._last_response = None
+        self._last_read_results = []
+        self._last_hid_events = []

@@ -106,6 +106,13 @@ class TransportMode(str, Enum):
     M5 = "m5"
 
 
+class TransportCaptureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile: str = Field(..., pattern="^(hendrix-rx|hendrix-tx|wireless-pro-rx|rxcc|hendrix-tx-via-rxcc)$")
+    transport: TransportMode
+
+
 class TransportConfigRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

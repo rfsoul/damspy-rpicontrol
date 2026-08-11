@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>damspy-rpicontrol · Transport Capture</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f2f4f7; color: #111827; }
+    main { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    section { background: #fff; border: 1px solid #d0d7de; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+    form { display: grid; gap: .8rem; }
+    label { display: grid; gap: .35rem; font-weight: 600; }
+    select, button { font: inherit; padding: .7rem .8rem; border-radius: 8px; border: 1px solid #cbd5e1; }
+    button { cursor: pointer; background: #0f172a; color: #fff; border: none; }
+    button:disabled { cursor: wait; opacity: .65; }
+    #download[hidden] { display: none; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 1rem; min-height: 8rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Transport Capture</h1>
+      <p>Runs the existing controller operations and records raw HID evidence. Response payloads are not graded or compared.</p>
+      <p><a href="/">Back to device controls</a></p>
+    </section>
+    <section>
+      <form id="capture-form">
+        <label>Device / profile
+          <select id="profile" name="profile">
+            <option value="hendrix-rx">Hendrix RX</option>
+            <option value="hendrix-tx">Hendrix TX direct/beltpack</option>
+            <option value="wireless-pro-rx">Wireless PRO RX</option>
+            <option value="rxcc">RXCC</option>
+            <option value="hendrix-tx-via-rxcc">Hendrix TX via RXCC</option>
+          </select>
+        </label>
+        <label>Transport
+          <select id="capture-transport" name="transport">
+            <option value="usb">USB</option>
+            <option value="m5">M5 (configured serial port)</option>
+          </select>
+        </label>
+        <button id="run-capture" type="submit">Run Capture</button>
+        <button id="download" type="button" hidden>Download JSON</button>
+      </form>
+    </section>
+    <section><h2>Capture summary</h2><pre id="capture-output">Ready.</pre></section>
+  </main>
+  <script src="/static/transport_capture.js"></script>
+</body>
+</html>
