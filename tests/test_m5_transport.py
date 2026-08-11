@@ -1,7 +1,9 @@
 import struct
 import unittest
+from unittest.mock import patch
 
 from damspy_rpicontrol.m5_transport import (
+    DEFAULT_REQUEST_TIMEOUT_S,
     Frame,
     M5SerialHidTransport,
     M5TransportError,
@@ -44,6 +46,33 @@ class FakeSerial:
 
 
 class M5TransportTest(unittest.TestCase):
+    def test_non_read_operations_use_six_second_default_timeout(self) -> None:
+        transport = M5SerialHidTransport("/dev/fake")
+
+        self.assertEqual(DEFAULT_REQUEST_TIMEOUT_S, 6.0)
+        self.assertEqual(transport.request_timeout_s, 6.0)
+
+        with patch.object(
+            transport,
+            "request",
+            return_value=bytes([Result.OK]) + struct.pack("<H", 3),
+        ) as request:
+            self.assertEqual(transport.device_factory().write(b"\x01\x02\x03"), 3)
+
+        self.assertNotIn("timeout_s", request.call_args.kwargs)
+
+    def test_read_uses_requested_timeout_plus_existing_margin(self) -> None:
+        transport = M5SerialHidTransport("/dev/fake")
+
+        with patch.object(
+            transport,
+            "request",
+            return_value=bytes([Result.TIMEOUT]) + struct.pack("<H", 0),
+        ) as request:
+            self.assertEqual(transport.device_factory().read(64, 200), b"")
+
+        self.assertAlmostEqual(request.call_args.kwargs["timeout_s"], 1.2)
+
     def test_crc16_ccitt_false_matches_reference_vector(self) -> None:
         self.assertEqual(crc16_ccitt_false(b"123456789"), 0x29B1)
 

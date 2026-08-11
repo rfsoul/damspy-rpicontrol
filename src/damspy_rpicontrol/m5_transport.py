@@ -10,7 +10,7 @@ from typing import Callable, Protocol
 
 PROTOCOL_MAGIC = 0xD1
 DEFAULT_BAUD_RATE = 115200
-DEFAULT_REQUEST_TIMEOUT_S = 1.5
+DEFAULT_REQUEST_TIMEOUT_S = 6.0
 READ_TRANSPORT_MARGIN_S = 1.0
 MAX_BODY_LENGTH = 242
 MAX_HID_PAYLOAD_LENGTH = 239
@@ -193,10 +193,7 @@ class M5SerialHidDevice:
             MessageType.READ_REQUEST,
             struct.pack("<HI", length, timeout_ms),
             MessageType.READ_RESPONSE,
-            timeout_s=max(
-                self._transport.request_timeout_s,
-                (timeout_ms / 1000) + READ_TRANSPORT_MARGIN_S,
-            ),
+            timeout_s=(timeout_ms / 1000) + READ_TRANSPORT_MARGIN_S,
         )
         if len(response) < 3:
             raise M5TransportError("M5 read response is too short.")
