@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 
 from damspy_rpicontrol.hendrix_device import HendrixController
-from damspy_rpicontrol.main import create_app
+from damspy_rpicontrol.main import _detect_usb_identity, create_app
 from damspy_rpicontrol.models import TransportCaptureRequest
 from damspy_rpicontrol.m5_transport import RemoteDeviceInfo
 from damspy_rpicontrol.rxcc_device import RxccController
@@ -176,6 +176,29 @@ class TestTransportCapture(unittest.TestCase):
             except Exception:
                 pass
         assert controller.get_last_io_events()[1] == [None]
+
+    def test_usb_identity_accepts_attribute_based_hidapi_device_info(self) -> None:
+        class DeviceInfo:
+            vendor_id = 0x19F7
+            product_id = 0x0058
+            product_string = "Wireless PRO RX"
+            manufacturer_string = "RODE"
+
+        class HidApi:
+            @staticmethod
+            def enumerate():
+                return [DeviceInfo()]
+
+        with patch("damspy_rpicontrol.main.importlib.import_module", return_value=HidApi):
+            identity = _detect_usb_identity("wireless-pro-rx")
+
+        assert identity == {
+            "connected": True,
+            "hid_ready": True,
+            "vid": 0x19F7,
+            "pid": 0x0058,
+            "name": "Wireless PRO RX",
+        }
 
     def test_usb_api_uses_usb_controller_and_keeps_profile_and_identity_separate(self) -> None:
         m5_instances = []

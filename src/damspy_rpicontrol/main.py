@@ -83,6 +83,12 @@ USB_PROFILE_DEVICE_IDS = {
     "hendrix-tx-via-rxcc": RXCC_DEVICE_IDS,
 }
 
+
+def _device_info_value(entry, field: str):
+    if isinstance(entry, dict):
+        return entry.get(field)
+    return getattr(entry, field, None)
+
 def _detect_usb_identity(profile: str) -> dict:
     expected_ids = USB_PROFILE_DEVICE_IDS[profile]
     try:
@@ -94,11 +100,11 @@ def _detect_usb_identity(profile: str) -> dict:
             "status_error": f"Unable to enumerate USB HID devices: {exc}",
         }
     for entry in entries:
-        vendor_id = entry.get("vendor_id")
-        product_id = entry.get("product_id")
+        vendor_id = _device_info_value(entry, "vendor_id")
+        product_id = _device_info_value(entry, "product_id")
         if (vendor_id, product_id) not in expected_ids:
             continue
-        raw_name = entry.get("product_string") or entry.get("manufacturer_string")
+        raw_name = _device_info_value(entry, "product_string") or _device_info_value(entry, "manufacturer_string")
         name = raw_name.decode(errors="replace") if isinstance(raw_name, bytes) else raw_name
         return {
             "connected": True, "hid_ready": True, "vid": vendor_id, "pid": product_id,

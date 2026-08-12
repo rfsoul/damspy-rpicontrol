@@ -19,7 +19,13 @@
           transport: document.getElementById("capture-transport").value,
         }),
       });
-      const body = await response.json();
+      const responseText = await response.text();
+      let body;
+      try {
+        body = JSON.parse(responseText);
+      } catch (error) {
+        throw new Error("HTTP " + response.status + ": " + (responseText || "empty response"));
+      }
       if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
       capture = body;
       const all = [...body.operations, ...body.cleanup_operations];
