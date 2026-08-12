@@ -14,6 +14,10 @@ DEFAULT_REQUEST_TIMEOUT_S = 6.0
 READ_TRANSPORT_MARGIN_S = 1.0
 MAX_BODY_LENGTH = 242
 MAX_HID_PAYLOAD_LENGTH = 239
+SURVEY_PROTOCOL_MAGIC = 0xD2
+SURVEY_SET_REQUEST = 0x01
+SURVEY_SET_RESPONSE = 0x02
+SURVEY_HOST_TIMEOUT_S = 6.0
 
 
 class M5TransportError(RuntimeError):
@@ -152,6 +156,32 @@ def decode_frame(encoded: bytes) -> Frame:
     return Frame(message_type, request_id, decoded[8:-2])
 
 
+def encode_survey_set_request(request_id: int) -> bytes:
+    inner = struct.pack(
+        "<BBIHB", SURVEY_PROTOCOL_MAGIC, SURVEY_SET_REQUEST, request_id, 1, 1
+    )
+    return cobs_encode(inner + struct.pack("<H", crc16_ccitt_false(inner))) + b"\x00"
+
+
+def decode_survey_set_response(encoded: bytes) -> tuple[int, int]:
+    decoded = cobs_decode(encoded)
+    if len(decoded) != 11:
+        raise M5TransportError("M5 survey response has an invalid length.")
+    magic, message_type, request_id, body_length, result = struct.unpack(
+        "<BBIHB", decoded[:-2]
+    )
+    if magic != SURVEY_PROTOCOL_MAGIC:
+        raise M5TransportError(f"Invalid M5 survey response magic 0x{magic:02X}.")
+    if message_type != SURVEY_SET_RESPONSE:
+        raise M5TransportError(f"Unexpected M5 survey response type 0x{message_type:02X}.")
+    if body_length != 1:
+        raise M5TransportError("M5 survey response body length is invalid.")
+    expected_crc = struct.unpack("<H", decoded[-2:])[0]
+    if expected_crc != crc16_ccitt_false(decoded[:-2]):
+        raise M5TransportError("M5 survey response CRC16 check failed.")
+    return request_id, result
+
+
 def _decode_result(raw_result: int, operation: str) -> Result:
     try:
         return Result(raw_result)
@@ -256,6 +286,23 @@ class M5SerialHidTransport:
             product_id,
         )
 
+    def start_standalone_survey(self) -> None:
+        with self._lock:
+            request_id = self._allocate_request_id()
+            endpoint = self._ensure_serial()
+            self._write_all(endpoint, encode_survey_set_request(request_id))
+            deadline = time.monotonic() + SURVEY_HOST_TIMEOUT_S
+            while True:
+                encoded = self._read_encoded_frame(endpoint, deadline)
+                response_request_id, result = decode_survey_set_response(encoded)
+                if response_request_id != request_id:
+                    continue
+                if result != 0:
+                    raise M5TransportError(
+                        f"M5 survey request failed with result 0x{result:02X}."
+                    )
+                return
+
     def request(
         self,
         message_type: MessageType,
@@ -317,6 +364,15 @@ class M5SerialHidTransport:
             raise M5TransportError(f"Failed writing to M5 serial port {self.port} ({exc}).") from exc
 
     def _read_frame(self, endpoint: SerialEndpoint, deadline: float) -> Frame:
+        while True:
+            encoded = self._read_encoded_frame(endpoint, deadline)
+            try:
+                return decode_frame(encoded)
+            except M5TransportError:
+                # A delimiter gives us a clean resynchronisation point.
+                continue
+
+    def _read_encoded_frame(self, endpoint: SerialEndpoint, deadline: float) -> bytes:
         while time.monotonic() < deadline:
             delimiter = self._receive_buffer.find(0)
             if delimiter >= 0:
@@ -324,11 +380,7 @@ class M5SerialHidTransport:
                 del self._receive_buffer[: delimiter + 1]
                 if not encoded:
                     continue
-                try:
-                    return decode_frame(encoded)
-                except M5TransportError:
-                    # A delimiter gives us a clean resynchronisation point.
-                    continue
+                return encoded
             try:
                 chunk = endpoint.read(256)
             except Exception as exc:

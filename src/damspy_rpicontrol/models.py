@@ -130,6 +130,14 @@ class TransportStatusResponse(BaseModel):
     detail: str
 
 
+class SurveyModeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: str = "start_standalone_range_survey"
+    status: str = "ok"
+    detail: str
+
+
 class OperationResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

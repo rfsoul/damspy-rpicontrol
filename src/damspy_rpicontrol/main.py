@@ -24,6 +24,7 @@ from damspy_rpicontrol.models import (
     RawCommandRequest,
     SerialNumberResponse,
     StartRfRequest,
+    SurveyModeResponse,
     TransportCaptureRequest,
     TransportConfigRequest,
     TransportMode,
@@ -134,6 +135,12 @@ def _render_transport_controls() -> str:
   </label>
   <button id="transport-apply" type="button">Apply connection</button>
   <span id="transport-status" role="status">Loading connection status...</span>
+</div>
+<div style="margin-top:.8rem">
+  <button id="survey-start" type="button" disabled>Start Standalone Range Survey</button>
+  <p id="survey-warning" style="margin:.45rem 0 0;color:#991b1b">
+    Warning: starting survey mode stops normal HID control until the Stick is reset.
+  </p>
 </div>
 """
 
@@ -280,6 +287,36 @@ def create_app(
         if old_m5_transport is not None and old_m5_transport is not transport:
             old_m5_transport.close()
         return _transport_status()
+
+    @app.post("/api/m5/survey/start", response_model=SurveyModeResponse)
+    def start_standalone_range_survey() -> SurveyModeResponse:
+        failure_detail = (
+            "Survey mode was not started. Keep the Stick connected; normal operation "
+            "was not intentionally stopped."
+        )
+        if app.state.transport_mode != TransportMode.M5 or app.state.m5_transport is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Select and apply the M5 connection first. {failure_detail}",
+            )
+        try:
+            app.state.m5_transport.start_standalone_survey()
+        except M5TransportError as exc:
+            app.state.transport_detail = str(exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"{failure_detail} Transport error: {exc}",
+            ) from exc
+        app.state.transport_connected = False
+        app.state.transport_detail = (
+            "Standalone range survey is active; reset the Stick to restore bridge mode."
+        )
+        return SurveyModeResponse(
+            detail=(
+                "Survey mode started successfully. You may now disconnect the Stick "
+                "from the Pi. Reset the Stick to return to normal bridge mode."
+            )
+        )
 
     def _capture_controllers(device_factory, backend_name):
         return {

@@ -4,6 +4,7 @@
   const ports = document.getElementById("transport-ports");
   const applyButton = document.getElementById("transport-apply");
   const status = document.getElementById("transport-status");
+  const surveyButton = document.getElementById("survey-start");
   if (!mode || !port || !ports || !applyButton || !status) return;
 
   function show(payload) {
@@ -18,6 +19,7 @@
     });
     status.textContent = `${payload.connected ? "Connected" : "Disconnected"}: ${payload.detail}`;
     status.dataset.connected = String(payload.connected);
+    if (surveyButton) surveyButton.disabled = payload.mode !== "m5";
   }
 
   async function request(endpoint, options) {
@@ -28,7 +30,9 @@
   }
 
   mode.addEventListener("change", () => {
-    port.disabled = mode.value !== "m5";
+    const isM5 = mode.value === "m5";
+    port.disabled = !isM5;
+    if (surveyButton) surveyButton.disabled = true;
   });
   applyButton.addEventListener("click", async () => {
     applyButton.disabled = true;
@@ -45,6 +49,22 @@
       applyButton.disabled = false;
     }
   });
+
+  if (surveyButton) {
+    surveyButton.addEventListener("click", async () => {
+      const warning = "Starting standalone range survey stops normal HID control until the Stick is reset. Continue?";
+      if (!window.confirm(warning)) return;
+      surveyButton.disabled = true;
+      status.textContent = "Starting standalone range survey...";
+      try {
+        const payload = await request("/api/m5/survey/start", {method: "POST"});
+        status.textContent = payload.detail;
+      } catch (error) {
+        status.textContent = error.message;
+        surveyButton.disabled = mode.value !== "m5";
+      }
+    });
+  }
 
   request("/api/transport").then(show).catch((error) => {
     status.textContent = `Disconnected: ${error.message}`;
