@@ -127,6 +127,9 @@ class TestTransportCapture(unittest.TestCase):
         names = [item["operation"] for item in capture["operations"]]
         expected = [item[0] for item in operation_matrix("hendrix-tx", EvidenceController())[0]]
         assert names == expected
+        assert "flash_led" not in names
+        assert "turn_off_all_leds" not in names
+        assert names[-3:] == ["stop_rf", "start_rf", "stop_rf"]
         failed = capture["operations"][4]
         assert failed["operation"] == "set_ctx"
         assert failed["writes"] == [
@@ -141,7 +144,7 @@ class TestTransportCapture(unittest.TestCase):
         assert capture["operations"][5]["error"] is None
         assert capture["operations"][0]["parsed_result"] == {"battery_mv": 3800}
         assert [item["operation"] for item in capture["cleanup_operations"]] == [
-            "stop_rf", "turn_off_all_leds", "set_charging"
+            "stop_rf", "set_charging"
         ]
         assert capture["download_filename"] == "hendrix_tx_usb_2026-08-11_184500.json"
 

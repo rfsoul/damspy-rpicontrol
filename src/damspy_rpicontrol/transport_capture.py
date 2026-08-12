@@ -41,14 +41,6 @@ def _hendrix_operations(controller: Any, include_tx_operations: bool) -> tuple[l
             ("set_ctx", {"high": False}, lambda: controller.set_ctx(False)),
         ]
     )
-    if include_tx_operations:
-        operations.extend(
-            [
-                ("flash_led", {"color": "red", "color_index": 0, "flashes": 2}, lambda: controller.flash_led(0)),
-                ("flash_led", {"color": "green", "color_index": 1, "flashes": 2}, lambda: controller.flash_led(1)),
-                ("turn_off_all_leds", {}, controller.turn_off_all_leds),
-            ]
-        )
     operations.extend(
         [
             ("stop_rf", {}, controller.stop_rf),
@@ -60,7 +52,6 @@ def _hendrix_operations(controller: Any, include_tx_operations: bool) -> tuple[l
     if include_tx_operations:
         cleanup.extend(
             [
-                ("turn_off_all_leds", {}, controller.turn_off_all_leds),
                 ("set_charging", {"enabled": False}, lambda: controller.set_charging(False)),
             ]
         )
