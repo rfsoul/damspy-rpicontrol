@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 import importlib
 import threading
 import subprocess
@@ -218,11 +219,20 @@ def create_app(
     app.state.capture_lock = threading.Lock()
 
     def _serial_ports() -> list[str]:
+        stable_ports = sorted(
+            str(path)
+            for path in Path("/dev/serial/by-id").glob(
+                "*Espressif_USB_JTAG_serial_debug_unit*"
+            )
+        )
         try:
             from serial.tools import list_ports
         except ImportError:
-            return []
-        return sorted(port.device for port in list_ports.comports())
+            return stable_ports
+        transient_ports = sorted(port.device for port in list_ports.comports())
+        return stable_ports + [
+            port for port in transient_ports if port not in stable_ports
+        ]
 
     def _transport_status() -> TransportStatusResponse:
         return TransportStatusResponse(
@@ -1100,6 +1110,7 @@ app = create_app()
 def run() -> None:
     import uvicorn
 
+    logging.getLogger("damspy_rpicontrol.m5_transport").setLevel(logging.INFO)
     uvicorn.run("damspy_rpicontrol.main:app", host="0.0.0.0", port=8000)
 
 

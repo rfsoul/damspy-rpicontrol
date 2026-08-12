@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
+import logging
+from pathlib import Path
+import subprocess
+import sys
 import struct
 import threading
 import time
@@ -18,10 +22,19 @@ SURVEY_PROTOCOL_MAGIC = 0xD2
 SURVEY_SET_REQUEST = 0x01
 SURVEY_SET_RESPONSE = 0x02
 SURVEY_HOST_TIMEOUT_S = 6.0
+RECOVERY_REAPPEAR_TIMEOUT_S = 10.0
+RECOVERY_POLL_INTERVAL_S = 0.1
+RECOVERY_BOOT_DELAY_S = 3.0
+
+logger = logging.getLogger(__name__)
 
 
 class M5TransportError(RuntimeError):
     """Raised when the serial HID tunnel cannot complete an operation."""
+
+
+class M5TransportTimeout(M5TransportError):
+    """Raised when no correlated response arrives before the host deadline."""
 
 
 class MessageType(IntEnum):
@@ -66,6 +79,7 @@ class SerialEndpoint(Protocol):
 
 
 SerialFactory = Callable[[str, int], SerialEndpoint]
+StickResetter = Callable[[str], None]
 
 
 def cobs_encode(data: bytes) -> bytes:
@@ -251,11 +265,19 @@ class M5SerialHidTransport:
         baud_rate: int = DEFAULT_BAUD_RATE,
         request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
         serial_factory: SerialFactory | None = None,
+        stick_resetter: StickResetter | None = None,
+        recovery_enabled: bool | None = None,
     ) -> None:
         self.port = port
         self.baud_rate = baud_rate
         self.request_timeout_s = request_timeout_s
         self._serial_factory = serial_factory or self._default_serial_factory
+        self._stick_resetter = stick_resetter or self._default_stick_resetter
+        self.recovery_enabled = (
+            self._is_stable_espressif_port(port)
+            if recovery_enabled is None
+            else recovery_enabled
+        )
         self._serial: SerialEndpoint | None = None
         self._lock = threading.Lock()
         self._receive_buffer = bytearray()
@@ -311,29 +333,116 @@ class M5SerialHidTransport:
         timeout_s: float | None = None,
     ) -> bytes:
         with self._lock:
+            started = time.monotonic()
             request_id = self._allocate_request_id()
-            endpoint = self._ensure_serial()
-            self._write_all(endpoint, encode_frame(Frame(message_type, request_id, body)))
-            deadline = time.monotonic() + (timeout_s or self.request_timeout_s)
-            while True:
-                frame = self._read_frame(endpoint, deadline)
-                if frame.request_id != request_id:
-                    continue
-                if frame.message_type != expected_response_type:
+            operation_timeout = timeout_s or self.request_timeout_s
+            logger.info(
+                "M5 request start type=%s id=%d body_length=%d timeout_s=%.3f",
+                message_type.name, request_id, len(body), operation_timeout,
+            )
+
+            try:
+                response = self._request_once(
+                    message_type, body, expected_response_type,
+                    request_id, operation_timeout,
+                )
+            except M5TransportTimeout as original_error:
+                logger.error(
+                    "M5 request timeout type=%s id=%d elapsed_ms=%.3f",
+                    message_type.name, request_id,
+                    (time.monotonic() - started) * 1000,
+                )
+                if not self.recovery_enabled:
+                    raise
+
+                try:
+                    recovered_status = self._recover_and_verify_locked()
+                except M5TransportError as recovery_error:
                     raise M5TransportError(
-                        f"Unexpected M5 response type {frame.message_type.name}; "
-                        f"expected {expected_response_type.name}."
+                        f"{original_error} Automatic Stick recovery failed: "
+                        f"{recovery_error}"
+                    ) from recovery_error
+
+                if message_type == MessageType.STATUS_REQUEST:
+                    logger.info(
+                        "M5 STATUS recovered id=%d elapsed_ms=%.3f",
+                        request_id, (time.monotonic() - started) * 1000,
                     )
-                return frame.body
+                    return recovered_status
+
+                raise M5TransportError(
+                    f"{original_error} Stick reset and STATUS recovery succeeded; "
+                    f"{message_type.name} was not retried because its outcome is uncertain."
+                ) from original_error
+
+            logger.info(
+                "M5 request complete type=%s id=%d response_length=%d elapsed_ms=%.3f",
+                message_type.name, request_id, len(response),
+                (time.monotonic() - started) * 1000,
+            )
+            return response
+
+    def _request_once(
+        self,
+        message_type: MessageType,
+        body: bytes,
+        expected_response_type: MessageType,
+        request_id: int,
+        timeout_s: float,
+    ) -> bytes:
+        endpoint = self._ensure_serial()
+        self._write_all(endpoint, encode_frame(Frame(message_type, request_id, body)))
+        deadline = time.monotonic() + timeout_s
+        while True:
+            frame = self._read_frame(endpoint, deadline)
+            if frame.request_id != request_id:
+                continue
+            if frame.message_type != expected_response_type:
+                raise M5TransportError(
+                    f"Unexpected M5 response type {frame.message_type.name}; "
+                    f"expected {expected_response_type.name}."
+                )
+            return frame.body
+
+    def _recover_and_verify_locked(self) -> bytes:
+        logger.warning("M5 recovery start port=%s", self.port)
+        self._close_locked()
+
+        try:
+            self._stick_resetter(self.port)
+        except Exception as exc:
+            raise M5TransportError(f"Unable to reset Stick on {self.port} ({exc}).") from exc
+
+        deadline = time.monotonic() + RECOVERY_REAPPEAR_TIMEOUT_S
+        while not Path(self.port).exists():
+            if time.monotonic() >= deadline:
+                raise M5TransportError(
+                    f"Stick serial path {self.port} did not reappear after reset."
+                )
+            time.sleep(RECOVERY_POLL_INTERVAL_S)
+
+        time.sleep(RECOVERY_BOOT_DELAY_S)
+        recovery_id = self._allocate_request_id()
+        status = self._request_once(
+            MessageType.STATUS_REQUEST, b"", MessageType.STATUS_RESPONSE,
+            recovery_id, self.request_timeout_s,
+        )
+        if len(status) != 6:
+            raise M5TransportError("Recovered Stick returned an invalid STATUS body.")
+        logger.warning("M5 recovery complete port=%s status_id=%d", self.port, recovery_id)
+        return status
 
     def close(self) -> None:
         with self._lock:
-            if self._serial is not None:
-                try:
-                    self._serial.close()
-                finally:
-                    self._serial = None
-                    self._receive_buffer.clear()
+            self._close_locked()
+
+    def _close_locked(self) -> None:
+        if self._serial is not None:
+            try:
+                self._serial.close()
+            finally:
+                self._serial = None
+                self._receive_buffer.clear()
 
     def _allocate_request_id(self) -> int:
         request_id = self._next_request_id
@@ -391,7 +500,37 @@ class M5SerialHidTransport:
                     self._receive_buffer.clear()
             else:
                 time.sleep(0.001)
-        raise M5TransportError(f"Timed out waiting for an M5 response on {self.port}.")
+        raise M5TransportTimeout(f"Timed out waiting for an M5 response on {self.port}.")
+
+    @staticmethod
+    def _is_stable_espressif_port(port: str) -> bool:
+        return (
+            port.startswith("/dev/serial/by-id/")
+            and "Espressif_USB_JTAG_serial_debug_unit" in Path(port).name
+        )
+
+    @staticmethod
+    def _default_stick_resetter(port: str) -> None:
+        command = [
+            sys.executable,
+            "-m",
+            "esptool",
+            "--chip",
+            "esp32s3",
+            "--port",
+            port,
+            "--before",
+            "default-reset",
+            "--after",
+            "hard-reset",
+            "chip-id",
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=30, check=False
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(detail or f"esptool exited {result.returncode}")
 
     @staticmethod
     def _default_serial_factory(port: str, baud_rate: int) -> SerialEndpoint:

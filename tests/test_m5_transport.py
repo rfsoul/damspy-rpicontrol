@@ -130,6 +130,88 @@ class M5TransportTest(unittest.TestCase):
         with self.assertRaisesRegex(M5TransportError, "Timed out"):
             transport.get_remote_device_info()
 
+    def test_recovery_defaults_only_for_stable_espressif_by_id_port(self) -> None:
+        stable = (
+            "/dev/serial/by-id/"
+            "usb-Espressif_USB_JTAG_serial_debug_unit_11:22-if00"
+        )
+
+        self.assertTrue(M5SerialHidTransport(stable).recovery_enabled)
+        self.assertFalse(M5SerialHidTransport("/dev/ttyACM0").recovery_enabled)
+        self.assertFalse(M5SerialHidTransport("/dev/serial/by-id/usb-other").recovery_enabled)
+
+    def test_status_timeout_resets_reopens_and_returns_verified_status(self) -> None:
+        reset_ports = []
+        endpoints = [
+            FakeSerial(lambda _frame: None),
+            FakeSerial(
+                lambda frame: encode_frame(
+                    Frame(
+                        MessageType.STATUS_RESPONSE,
+                        frame.request_id,
+                        bytes([1, 1]) + struct.pack("<HH", 0x19F7, 0x0058),
+                    )
+                )
+            ),
+        ]
+
+        transport = M5SerialHidTransport(
+            "/tmp/fake-stick",
+            request_timeout_s=0.01,
+            serial_factory=lambda _port, _baud: endpoints.pop(0),
+            stick_resetter=reset_ports.append,
+            recovery_enabled=True,
+        )
+
+        with patch("damspy_rpicontrol.m5_transport.RECOVERY_BOOT_DELAY_S", 0), \
+             patch("damspy_rpicontrol.m5_transport.Path.exists", return_value=True):
+            info = transport.get_remote_device_info()
+
+        self.assertEqual(reset_ports, ["/tmp/fake-stick"])
+        self.assertTrue(info.hid_ready)
+        self.assertEqual(info.product_id, 0x0058)
+
+    def test_uncertain_write_is_not_retried_after_successful_recovery(self) -> None:
+        first_requests = []
+        recovery_requests = []
+
+        def first_responder(frame):
+            first_requests.append(frame)
+            return None
+
+        def recovery_responder(frame):
+            recovery_requests.append(frame)
+            return encode_frame(
+                Frame(
+                    MessageType.STATUS_RESPONSE,
+                    frame.request_id,
+                    bytes([1, 1]) + struct.pack("<HH", 0x19F7, 0x0058),
+                )
+            )
+
+        endpoints = [FakeSerial(first_responder), FakeSerial(recovery_responder)]
+        transport = M5SerialHidTransport(
+            "/tmp/fake-stick",
+            request_timeout_s=0.01,
+            serial_factory=lambda _port, _baud: endpoints.pop(0),
+            stick_resetter=lambda _port: None,
+            recovery_enabled=True,
+        )
+
+        with patch("damspy_rpicontrol.m5_transport.RECOVERY_BOOT_DELAY_S", 0), \
+             patch("damspy_rpicontrol.m5_transport.Path.exists", return_value=True):
+            with self.assertRaisesRegex(M5TransportError, "outcome is uncertain"):
+                transport.device_factory().write(b"\x0f\x0d\x00")
+
+        self.assertEqual(
+            [frame.message_type for frame in first_requests],
+            [MessageType.WRITE_REQUEST],
+        )
+        self.assertEqual(
+            [frame.message_type for frame in recovery_requests],
+            [MessageType.STATUS_REQUEST],
+        )
+
     def test_no_device_usb_error_busy_and_invalid_request_are_errors(self) -> None:
         for result in (Result.NO_DEVICE, Result.BUSY, Result.INVALID_REQUEST, Result.USB_ERROR):
             with self.subTest(result=result):
