@@ -46,6 +46,43 @@ class FakeSerial:
 
 
 class M5TransportTest(unittest.TestCase):
+    def test_status_reopens_stale_serial_handle_after_io_error(self) -> None:
+        class StaleSerial:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def write(self, _data: bytes) -> int:
+                raise OSError(5, "Input/output error")
+
+            def read(self, _size: int = 1) -> bytes:
+                return b""
+
+            def close(self) -> None:
+                self.closed = True
+
+        stale = StaleSerial()
+        healthy = FakeSerial(
+            lambda frame: encode_frame(
+                Frame(
+                    MessageType.STATUS_RESPONSE,
+                    frame.request_id,
+                    bytes([1, 1]) + struct.pack("<HH", 0x19F7, 0x0058),
+                )
+            )
+        )
+        endpoints = [stale, healthy]
+        transport = M5SerialHidTransport(
+            "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_TEST-if00",
+            serial_factory=lambda _port, _baud: endpoints.pop(0),
+        )
+
+        info = transport.get_remote_device_info()
+
+        self.assertTrue(stale.closed)
+        self.assertTrue(info.hid_ready)
+        self.assertEqual(info.product_id, 0x0058)
+        self.assertEqual(endpoints, [])
+
     def test_non_read_operations_use_six_second_default_timeout(self) -> None:
         transport = M5SerialHidTransport("/dev/fake")
 

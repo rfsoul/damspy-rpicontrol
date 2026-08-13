@@ -127,15 +127,21 @@ REMOTE_DEVICE_NAMES = {
 def _render_transport_controls() -> str:
     return """
 <div id="transport-controls" style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;margin-top:.8rem">
-  <label>Connection
+  <label>RØDE transport
     <select id="transport-mode"><option value="usb">USB</option><option value="m5">M5</option></select>
   </label>
   <label>M5 Gateway
     <input id="transport-port" value="Detected automatically" disabled>
   </label>
-  <button id="transport-apply" type="button">Apply connection</button>
+  <button id="transport-apply" type="button">Apply transport</button>
   <span id="transport-status" role="status">Loading connection status...</span>
 </div>
+<p id="transport-path-help" style="margin:.45rem 0 0">
+  USB path: this server → USB HID → RØDE product.
+</p>
+<p style="margin:.25rem 0 0;color:#475569">
+  Check health validates the selected transport all the way to the RØDE product.
+</p>
 <div style="margin-top:.8rem">
   <button id="survey-start" type="button" disabled>Start Standalone Range Survey</button>
   <p id="survey-warning" style="margin:.45rem 0 0;color:#991b1b">
@@ -312,17 +318,10 @@ def create_app(
         app.state.transport_mode = TransportMode.M5
         app.state.serial_port = serial_port
         app.state.m5_transport = transport
-        try:
-            status = transport.get_remote_device_info()
-            app.state.transport_connected = True
-            app.state.transport_detail = (
-                "M5 Gateway connected; M5 Node HID is ready."
-                if status.connected and status.hid_ready
-                else "M5 Gateway connected; M5 Node HID is not ready."
-            )
-        except M5TransportError as exc:
-            app.state.transport_connected = False
-            app.state.transport_detail = str(exc)
+        app.state.transport_connected = True
+        app.state.transport_detail = (
+            "M5 Gateway detected locally. M5 Node status has not been checked."
+        )
         return _transport_status()
 
     @app.post("/api/m5/survey/start", response_model=SurveyModeResponse)

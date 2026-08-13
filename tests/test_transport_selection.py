@@ -26,6 +26,7 @@ class FakeM5Transport:
         self.info = info or RemoteDeviceInfo(True, True, 0x19F7, 0x008C)
         self.pinged = False
         self.closed = False
+        self.status_checks = 0
 
     def device_factory(self) -> FakeM5Device:
         return FakeM5Device()
@@ -34,6 +35,7 @@ class FakeM5Transport:
         self.pinged = True
 
     def get_remote_device_info(self) -> RemoteDeviceInfo:
+        self.status_checks += 1
         return self.info
 
     def close(self) -> None:
@@ -72,6 +74,17 @@ class TransportSelectionTest(unittest.TestCase):
         self.assertEqual(status.mode.value, "usb")
         self.assertEqual(status.serial_port, "/dev/ttyACM0")
 
+    def test_web_ui_explains_both_rode_transport_paths(self) -> None:
+        app, _ = self.make_app()
+        root = next(route for route in app.routes if route.path == "/")
+
+        body = root.endpoint().body.decode("utf-8")
+
+        self.assertIn("RØDE transport", body)
+        self.assertIn("Apply transport", body)
+        self.assertIn("USB path: this server", body)
+        self.assertIn("validates the selected transport", body)
+
     def test_m5_selection_reuses_one_transport_without_vid_pid_gating(self) -> None:
         app, transports = self.make_app(RemoteDeviceInfo(True, True, 0x9999, 0x1234))
         route = next(route for route in app.routes if route.path == "/api/transport" and "PUT" in route.methods)
@@ -86,6 +99,18 @@ class TransportSelectionTest(unittest.TestCase):
         self.assertEqual(app.state.tx_controller.backend_name, f"m5-serial:{self.STICK_PORT}")
         self.assertEqual(app.state.controller.product_id, 0x008C)
         self.assertEqual(app.state.tx_controller.product_id, 0x008A)
+
+    def test_m5_selection_does_not_contact_remote_node(self) -> None:
+        app, transports = self.make_app()
+        route = next(route for route in app.routes if route.path == "/api/transport" and "PUT" in route.methods)
+
+        status = route.endpoint(TransportConfigRequest(mode="m5"))
+
+        self.assertTrue(status.connected)
+        self.assertEqual(len(transports), 1)
+        self.assertEqual(transports[0].status_checks, 0)
+        self.assertIn("detected locally", status.detail)
+        self.assertIn("has not been checked", status.detail)
 
     def test_m5_health_reports_known_remote_identity(self) -> None:
         app, _ = self.make_app(RemoteDeviceInfo(True, True, 0x19F7, 0x008C))

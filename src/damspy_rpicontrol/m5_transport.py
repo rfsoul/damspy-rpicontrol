@@ -37,6 +37,10 @@ class M5TransportTimeout(M5TransportError):
     """Raised when no correlated response arrives before the host deadline."""
 
 
+class M5SerialIOError(M5TransportError):
+    """Raised when the local Gateway serial connection is no longer usable."""
+
+
 class MessageType(IntEnum):
     WRITE_REQUEST = 0x01
     WRITE_RESPONSE = 0x02
@@ -346,6 +350,24 @@ class M5SerialHidTransport:
                     message_type, body, expected_response_type,
                     request_id, operation_timeout,
                 )
+            except M5SerialIOError as original_error:
+                self._close_locked()
+                if message_type != MessageType.STATUS_REQUEST:
+                    raise M5TransportError(
+                        f"{original_error} The M5 Gateway serial connection was "
+                        "reopened for the next operation; this operation was not "
+                        "retried because its outcome is uncertain."
+                    ) from original_error
+
+                logger.warning(
+                    "M5 STATUS reopening serial after I/O error port=%s",
+                    self.port,
+                )
+                retry_id = self._allocate_request_id()
+                response = self._request_once(
+                    message_type, body, expected_response_type,
+                    retry_id, operation_timeout,
+                )
             except M5TransportTimeout as original_error:
                 logger.error(
                     "M5 request timeout type=%s id=%d elapsed_ms=%.3f",
@@ -454,7 +476,7 @@ class M5SerialHidTransport:
             try:
                 self._serial = self._serial_factory(self.port, self.baud_rate)
             except Exception as exc:
-                raise M5TransportError(f"Unable to open M5 serial port {self.port} ({exc}).") from exc
+                raise M5SerialIOError(f"Unable to open M5 serial port {self.port} ({exc}).") from exc
         return self._serial
 
     def _write_all(self, endpoint: SerialEndpoint, data: bytes) -> None:
@@ -465,12 +487,12 @@ class M5SerialHidTransport:
                 if written is None:
                     written = len(data) - offset
                 if written <= 0:
-                    raise M5TransportError("M5 serial write returned no progress.")
+                    raise M5SerialIOError("M5 serial write returned no progress.")
                 offset += written
-        except M5TransportError:
+        except M5SerialIOError:
             raise
         except Exception as exc:
-            raise M5TransportError(f"Failed writing to M5 serial port {self.port} ({exc}).") from exc
+            raise M5SerialIOError(f"Failed writing to M5 serial port {self.port} ({exc}).") from exc
 
     def _read_frame(self, endpoint: SerialEndpoint, deadline: float) -> Frame:
         while True:
@@ -493,7 +515,7 @@ class M5SerialHidTransport:
             try:
                 chunk = endpoint.read(256)
             except Exception as exc:
-                raise M5TransportError(f"Failed reading M5 serial port {self.port} ({exc}).") from exc
+                raise M5SerialIOError(f"Failed reading M5 serial port {self.port} ({exc}).") from exc
             if chunk:
                 self._receive_buffer.extend(chunk)
                 if len(self._receive_buffer) > MAX_BODY_LENGTH + 32:

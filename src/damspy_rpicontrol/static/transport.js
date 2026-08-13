@@ -3,6 +3,7 @@
   const port = document.getElementById("transport-port");
   const applyButton = document.getElementById("transport-apply");
   const status = document.getElementById("transport-status");
+  const pathHelp = document.getElementById("transport-path-help");
   const surveyButton = document.getElementById("survey-start");
   if (!mode || !port || !applyButton || !status) return;
 
@@ -13,6 +14,11 @@
       : "Detected automatically";
     status.textContent = `${payload.connected ? "Connected" : "Disconnected"}: ${payload.detail}`;
     status.dataset.connected = String(payload.connected);
+    if (pathHelp) {
+      pathHelp.textContent = payload.mode === "m5"
+        ? "M5 path: this server → M5 Gateway → ESP-NOW → M5 Node → USB HID → RØDE product."
+        : "USB path: this server → USB HID → RØDE product.";
+    }
     if (surveyButton) surveyButton.disabled = payload.mode !== "m5";
   }
 
@@ -25,7 +31,12 @@
 
   mode.addEventListener("change", () => {
     port.disabled = true;
-    if (surveyButton) surveyButton.disabled = true;
+    if (pathHelp) {
+      pathHelp.textContent = mode.value === "m5"
+        ? "M5 path: this server → M5 Gateway → ESP-NOW → M5 Node → USB HID → RØDE product."
+        : "USB path: this server → USB HID → RØDE product.";
+    }
+    if (surveyButton) surveyButton.disabled = mode.value !== "m5";
   });
   applyButton.addEventListener("click", async () => {
     applyButton.disabled = true;
