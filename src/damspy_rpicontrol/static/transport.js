@@ -1,22 +1,16 @@
 (function () {
   const mode = document.getElementById("transport-mode");
   const port = document.getElementById("transport-port");
-  const ports = document.getElementById("transport-ports");
   const applyButton = document.getElementById("transport-apply");
   const status = document.getElementById("transport-status");
   const surveyButton = document.getElementById("survey-start");
-  if (!mode || !port || !ports || !applyButton || !status) return;
+  if (!mode || !port || !applyButton || !status) return;
 
   function show(payload) {
     mode.value = payload.mode;
-    port.value = payload.serial_port || "/dev/ttyACM0";
-    port.disabled = payload.mode !== "m5";
-    ports.replaceChildren();
-    (payload.available_serial_ports || []).forEach((value) => {
-      const option = document.createElement("option");
-      option.value = value;
-      ports.appendChild(option);
-    });
+    port.value = payload.mode === "m5" && payload.serial_port
+      ? "M5 Gateway detected"
+      : "Detected automatically";
     status.textContent = `${payload.connected ? "Connected" : "Disconnected"}: ${payload.detail}`;
     status.dataset.connected = String(payload.connected);
     if (surveyButton) surveyButton.disabled = payload.mode !== "m5";
@@ -30,8 +24,7 @@
   }
 
   mode.addEventListener("change", () => {
-    const isM5 = mode.value === "m5";
-    port.disabled = !isM5;
+    port.disabled = true;
     if (surveyButton) surveyButton.disabled = true;
   });
   applyButton.addEventListener("click", async () => {
@@ -41,7 +34,7 @@
       show(await request("/api/transport", {
         method: "PUT",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({mode: mode.value, serial_port: port.value}),
+        body: JSON.stringify({mode: mode.value}),
       }));
     } catch (error) {
       status.textContent = `Disconnected: ${error.message}`;
@@ -52,7 +45,7 @@
 
   if (surveyButton) {
     surveyButton.addEventListener("click", async () => {
-      const warning = "Starting standalone range survey stops normal HID control until the Stick is reset. Continue?";
+      const warning = "Starting standalone range survey stops normal HID control until the M5 Gateway is reset. Continue?";
       if (!window.confirm(warning)) return;
       surveyButton.disabled = true;
       status.textContent = "Starting standalone range survey...";

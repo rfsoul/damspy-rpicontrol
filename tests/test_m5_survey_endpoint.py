@@ -43,6 +43,8 @@ class FakeSurveyTransport:
 
 
 class SurveyEndpointTest(unittest.TestCase):
+    STICK_PORT = "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_STICK-if00"
+
     def make_app(self, error: M5TransportError | None = None):
         transports = []
 
@@ -54,6 +56,7 @@ class SurveyEndpointTest(unittest.TestCase):
         app = create_app(
             controller=RxccController(device_factory=FakeDevice, backend_name="test"),
             m5_transport_factory=factory,
+            m5_port_provider=lambda: [self.STICK_PORT],
         )
         return app, transports
 
@@ -69,8 +72,8 @@ class SurveyEndpointTest(unittest.TestCase):
         response = survey.endpoint()
 
         self.assertTrue(transports[0].survey_started)
-        self.assertIn("disconnect the Stick", response.detail)
-        self.assertIn("Reset the Stick", response.detail)
+        self.assertIn("disconnect the M5 Gateway", response.detail)
+        self.assertIn("Reset the M5 Gateway", response.detail)
         self.assertEqual(response.operation, "start_standalone_range_survey")
         self.assertFalse(app.state.transport_connected)
 
@@ -87,7 +90,7 @@ class SurveyEndpointTest(unittest.TestCase):
             survey.endpoint()
 
         self.assertEqual(caught.exception.status_code, 502)
-        self.assertIn("Keep the Stick connected", caught.exception.detail)
+        self.assertIn("Keep the M5 Gateway connected", caught.exception.detail)
         self.assertIn("not intentionally stopped", caught.exception.detail)
         self.assertTrue(app.state.transport_connected)
 
@@ -98,7 +101,7 @@ class SurveyEndpointTest(unittest.TestCase):
         body = root.endpoint().body.decode("utf-8")
 
         self.assertIn("Start Standalone Range Survey", body)
-        self.assertIn("stops normal HID control until the Stick is reset", body)
+        self.assertIn("stops normal HID control until the M5 Gateway is reset", body)
         self.assertIn("/static/transport.js", body)
 
     def test_requires_applied_m5_connection(self) -> None:
@@ -109,7 +112,7 @@ class SurveyEndpointTest(unittest.TestCase):
             survey.endpoint()
 
         self.assertEqual(caught.exception.status_code, 409)
-        self.assertIn("Select and apply the M5 connection first", caught.exception.detail)
+        self.assertIn("Select and apply the M5 Gateway connection first", caught.exception.detail)
 
 
 if __name__ == "__main__":

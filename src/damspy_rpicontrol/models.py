@@ -117,7 +117,7 @@ class TransportConfigRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: TransportMode
-    serial_port: str = Field(default="/dev/ttyACM0", min_length=1)
+    serial_port: str = Field(default="auto", min_length=1)
 
 
 class TransportStatusResponse(BaseModel):

@@ -130,9 +130,8 @@ def _render_transport_controls() -> str:
   <label>Connection
     <select id="transport-mode"><option value="usb">USB</option><option value="m5">M5</option></select>
   </label>
-  <label>M5 serial port
-    <input id="transport-port" list="transport-ports" value="/dev/ttyACM0" disabled>
-    <datalist id="transport-ports"></datalist>
+  <label>M5 Gateway
+    <input id="transport-port" value="Detected automatically" disabled>
   </label>
   <button id="transport-apply" type="button">Apply connection</button>
   <span id="transport-status" role="status">Loading connection status...</span>
@@ -140,7 +139,7 @@ def _render_transport_controls() -> str:
 <div style="margin-top:.8rem">
   <button id="survey-start" type="button" disabled>Start Standalone Range Survey</button>
   <p id="survey-warning" style="margin:.45rem 0 0;color:#991b1b">
-    Warning: starting survey mode stops normal HID control until the Stick is reset.
+    Warning: starting survey mode stops normal HID control until the M5 Gateway is reset.
   </p>
 </div>
 """
@@ -184,6 +183,7 @@ def create_app(
     controller: RxccController | None = None,
     m5_transport_factory: Callable[[str], M5SerialHidTransport] | None = None,
     usb_identity_provider: Callable[[str], dict] | None = None,
+    m5_port_provider: Callable[[], Sequence[str]] | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="damspy-rpicontrol",
@@ -215,10 +215,13 @@ def create_app(
     app.state.transport_detail = "Using direct USB HID."
     app.state.m5_transport = None
     app.state.m5_transport_factory = m5_transport_factory or M5SerialHidTransport
+    app.state.m5_port_provider = m5_port_provider
     app.state.usb_identity_provider = usb_identity_provider or _detect_usb_identity
     app.state.capture_lock = threading.Lock()
 
     def _serial_ports() -> list[str]:
+        if app.state.m5_port_provider is not None:
+            return sorted(app.state.m5_port_provider())
         stable_ports = sorted(
             str(path)
             for path in Path("/dev/serial/by-id").glob(
@@ -233,6 +236,27 @@ def create_app(
         return stable_ports + [
             port for port in transient_ports if port not in stable_ports
         ]
+
+    def _detect_m5_port() -> str:
+        candidates = [
+            port for port in _serial_ports()
+            if port.startswith("/dev/serial/by-id/")
+            and "Espressif_USB_JTAG_serial_debug_unit" in Path(port).name
+        ]
+        if not candidates:
+            raise HTTPException(
+                status_code=409,
+                detail="No M5 Gateway candidate was found. Connect one and try again.",
+            )
+        if len(candidates) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Multiple M5 Gateway candidates were found ({len(candidates)}). "
+                    "Disconnect all but the intended Gateway, then try again."
+                ),
+            )
+        return candidates[0]
 
     def _transport_status() -> TransportStatusResponse:
         return TransportStatusResponse(
@@ -262,7 +286,12 @@ def create_app(
                 old_m5_transport.close()
             return _transport_status()
 
-        transport = app.state.m5_transport_factory(payload.serial_port)
+        if old_m5_transport is not None:
+            old_m5_transport.close()
+            app.state.m5_transport = None
+
+        serial_port = _detect_m5_port()
+        transport = app.state.m5_transport_factory(serial_port)
         device_factory = transport.device_factory
         app.state.controller = RxccController(device_factory=device_factory, backend_name=transport.backend_name)
         app.state.wireless_pro_rx_controller = WirelessProRxController(
@@ -281,33 +310,31 @@ def create_app(
             product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
         )
         app.state.transport_mode = TransportMode.M5
-        app.state.serial_port = payload.serial_port
+        app.state.serial_port = serial_port
         app.state.m5_transport = transport
         try:
             status = transport.get_remote_device_info()
             app.state.transport_connected = True
             app.state.transport_detail = (
-                "Connected to the M5 bridge; remote HID is ready."
+                "M5 Gateway connected; M5 Node HID is ready."
                 if status.connected and status.hid_ready
-                else "Connected to the M5 bridge; remote HID is not ready."
+                else "M5 Gateway connected; M5 Node HID is not ready."
             )
         except M5TransportError as exc:
             app.state.transport_connected = False
             app.state.transport_detail = str(exc)
-        if old_m5_transport is not None and old_m5_transport is not transport:
-            old_m5_transport.close()
         return _transport_status()
 
     @app.post("/api/m5/survey/start", response_model=SurveyModeResponse)
     def start_standalone_range_survey() -> SurveyModeResponse:
         failure_detail = (
-            "Survey mode was not started. Keep the Stick connected; normal operation "
+            "Survey mode was not started. Keep the M5 Gateway connected; normal operation "
             "was not intentionally stopped."
         )
         if app.state.transport_mode != TransportMode.M5 or app.state.m5_transport is None:
             raise HTTPException(
                 status_code=409,
-                detail=f"Select and apply the M5 connection first. {failure_detail}",
+                detail=f"Select and apply the M5 Gateway connection first. {failure_detail}",
             )
         try:
             app.state.m5_transport.start_standalone_survey()
@@ -319,12 +346,12 @@ def create_app(
             ) from exc
         app.state.transport_connected = False
         app.state.transport_detail = (
-            "Standalone range survey is active; reset the Stick to restore bridge mode."
+            "Standalone range survey is active; reset the M5 Gateway to restore gateway mode."
         )
         return SurveyModeResponse(
             detail=(
-                "Survey mode started successfully. You may now disconnect the Stick "
-                "from the Pi. Reset the Stick to return to normal bridge mode."
+                "Survey mode started successfully. You may now disconnect the M5 Gateway "
+                "from the Pi. Reset the M5 Gateway to return to normal gateway mode."
             )
         )
 
@@ -587,14 +614,14 @@ def create_app(
             try:
                 info = transport.get_remote_device_info()
                 app.state.transport_connected = True
-                app.state.transport_detail = "Connected to the M5 bridge."
+                app.state.transport_detail = "M5 Gateway connected."
             except M5TransportError as exc:
                 app.state.transport_connected = False
                 app.state.transport_detail = str(exc)
                 return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=False, output=f"FAIL: {exc}")
             if not info.connected or not info.hid_ready:
                 state = "no USB HID device is attached" if not info.connected else "the USB HID device is not ready"
-                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=info.connected, hid_ready=info.hid_ready, output=f"M5 bridge connected; {state} on the remote Core.")
+                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=info.connected, hid_ready=info.hid_ready, output=f"M5 Gateway connected; {state} on the M5 Node.")
             device_name = REMOTE_DEVICE_NAMES.get((info.vendor_id, info.product_id))
             vendor_id = f"0x{info.vendor_id:04X}"
             product_id = f"0x{info.product_id:04X}"
