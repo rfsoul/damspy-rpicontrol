@@ -102,7 +102,7 @@ class SurveyEndpointTest(unittest.TestCase):
 
         self.assertIn("Start Standalone Range Survey", body)
         self.assertIn("stops normal HID control until the M5 Gateway is reset", body)
-        self.assertIn("/static/transport.js", body)
+        self.assertIn('/static/transport.js?v=2', body)
 
     def test_requires_applied_m5_connection(self) -> None:
         app, _ = self.make_app()

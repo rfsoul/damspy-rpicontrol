@@ -278,7 +278,7 @@ class M5SerialHidTransport:
         self._serial_factory = serial_factory or self._default_serial_factory
         self._stick_resetter = stick_resetter or self._default_stick_resetter
         self.recovery_enabled = (
-            self._is_stable_espressif_port(port)
+            False
             if recovery_enabled is None
             else recovery_enabled
         )

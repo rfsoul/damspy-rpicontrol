@@ -167,15 +167,16 @@ class M5TransportTest(unittest.TestCase):
         with self.assertRaisesRegex(M5TransportError, "Timed out"):
             transport.get_remote_device_info()
 
-    def test_recovery_defaults_only_for_stable_espressif_by_id_port(self) -> None:
+    def test_hardware_reset_recovery_is_opt_in(self) -> None:
         stable = (
             "/dev/serial/by-id/"
             "usb-Espressif_USB_JTAG_serial_debug_unit_11:22-if00"
         )
 
-        self.assertTrue(M5SerialHidTransport(stable).recovery_enabled)
+        self.assertFalse(M5SerialHidTransport(stable).recovery_enabled)
         self.assertFalse(M5SerialHidTransport("/dev/ttyACM0").recovery_enabled)
         self.assertFalse(M5SerialHidTransport("/dev/serial/by-id/usb-other").recovery_enabled)
+        self.assertTrue(M5SerialHidTransport(stable, recovery_enabled=True).recovery_enabled)
 
     def test_status_timeout_resets_reopens_and_returns_verified_status(self) -> None:
         reset_ports = []

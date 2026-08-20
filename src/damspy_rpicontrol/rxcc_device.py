@@ -229,12 +229,33 @@ class RxccController:
         return self._execute(antenna_reports(path))
 
     def start_rf(self, antenna: AntennaPath, channel: int, power: int) -> int:
-        reports = [
-            *frontend_mode_reports(FrontendMode.TRANSMITTING_PA),
-            *antenna_reports(antenna),
-            build_rf_start_report(channel=channel, power=power),
+        groups = [
+            frontend_mode_reports(FrontendMode.TRANSMITTING_PA),
+            antenna_reports(antenna),
+            [build_rf_start_report(channel=channel, power=power)],
         ]
-        return self._execute(reports)
+
+        if not self.backend_name.startswith("m5-serial:"):
+            return self._execute([report for group in groups for report in group])
+
+        reports_sent = 0
+        all_writes: list[bytes] = []
+        all_reads: list[bytes | None] = []
+        all_events: list[tuple[str, bytes | None]] = []
+        last_response: bytes | None = None
+
+        for group in groups:
+            reports_sent += self._execute(group)
+            all_writes.extend(self._last_written_reports)
+            all_reads.extend(self._last_read_results)
+            all_events.extend(self._last_hid_events)
+            last_response = self._last_response
+
+        self._last_written_reports = all_writes
+        self._last_read_results = all_reads
+        self._last_hid_events = all_events
+        self._last_response = last_response
+        return reports_sent
 
     def start_rf_raw(self, channel: int, power: int) -> int:
         return self._execute([build_rf_start_report(channel=channel, power=power)])
@@ -255,8 +276,9 @@ class RxccController:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
-                self._write_reports(device, [build_battery_info_request()])
-                return self._read_battery_info(device)
+                request = build_battery_info_request()
+                self._write_reports(device, [request])
+                return self._read_battery_info(device, request)
 
     def read_serial_number(self) -> str:
         return self.read_nvm_item("NORDIC_ID")
@@ -265,15 +287,16 @@ class RxccController:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
-                self._write_reports(device, [build_read_item_report(key)])
-                return self._read_nvm_item(device, key)
+                request = build_read_item_report(key)
+                self._write_reports(device, [request])
+                return self._read_nvm_item(device, key, request)
 
     def _execute(self, reports: Sequence[bytes]) -> int:
         with self._lock:
             self._reset_io_trace()
             with self._open_device() as device:
                 reports_sent = self._write_reports(device, reports)
-                self._read_command_response(device)
+                self._read_command_response(device, reports[-1])
                 return reports_sent
 
     def get_last_io_trace(self) -> tuple[list[bytes], bytes | None]:
@@ -337,7 +360,26 @@ class RxccController:
 
         return reports_sent
 
-    def _read_command_response(self, device: HidDevice) -> bytes | None:
+    @staticmethod
+    def _response_matches_request(response: bytes, request: bytes) -> bool:
+        return (
+            len(request) >= 2
+            and len(response) >= 2
+            and response[0] == ((request[0] + 1) & 0xFF)
+            and response[1] == request[1]
+        )
+
+    def _accept_response(self, response: bytes, request: bytes) -> bool:
+        return (
+            not self.backend_name.startswith("m5-serial:")
+            or self._response_matches_request(response, request)
+        )
+
+    def _read_command_response(
+        self,
+        device: HidDevice,
+        request: bytes,
+    ) -> bytes | None:
         deadline = time.monotonic() + (COMMAND_READ_TIMEOUT_MS / 1000)
 
         while True:
@@ -353,7 +395,10 @@ class RxccController:
 
             if response is not None:
                 response_bytes = bytes(response)
-                if response_bytes:
+                if (
+                    response_bytes
+                    and self._accept_response(response_bytes, request)
+                ):
                     self._last_response = response_bytes
                     return response_bytes
 
@@ -363,51 +408,82 @@ class RxccController:
 
             time.sleep(COMMAND_READ_POLL_INTERVAL_S)
 
-    def _read_battery_info(self, device: HidDevice) -> BatteryInfo:
-        try:
-            response = device.read(BATTERY_REQUEST_LENGTH, BATTERY_READ_TIMEOUT_MS)
-            self._last_read_results.append(None if response is None else bytes(response))
-            self._last_hid_events.append(("read", None if response is None else bytes(response)))
-        except Exception as exc:
-            raise DeviceCommunicationError(
-                f"Failed while reading RXCC battery response ({exc})."
-            ) from exc
+    def _read_battery_info(self, device: HidDevice, request: bytes) -> BatteryInfo:
+        response = self._read_matching_response(
+            device,
+            request,
+            BATTERY_REQUEST_LENGTH,
+            BATTERY_READ_TIMEOUT_MS,
+            "RXCC battery response",
+        )
 
-        if response is None:
+        if not response:
             self._last_response = None
             raise DeviceCommunicationError("RXCC battery response was empty.")
 
-        response_bytes = bytes(response)
-        self._last_response = response_bytes
+        self._last_response = response
         try:
-            return parse_battery_info_response(response_bytes)
+            return parse_battery_info_response(response)
         except HendrixDeviceCommunicationError as exc:
             raise DeviceCommunicationError(str(exc)) from exc
 
-    def _read_nvm_item(self, device: HidDevice, key: str) -> str:
-        try:
-            response = device.read(READ_ITEM_RESPONSE_LENGTH, READ_ITEM_TIMEOUT_MS)
-            self._last_read_results.append(None if response is None else bytes(response))
-            self._last_hid_events.append(("read", None if response is None else bytes(response)))
-        except Exception as exc:
-            raise DeviceCommunicationError(
-                f"Failed while reading RXCC NVM item `{key}` ({exc})."
-            ) from exc
+    def _read_nvm_item(self, device: HidDevice, key: str, request: bytes) -> str:
+        response = self._read_matching_response(
+            device,
+            request,
+            READ_ITEM_RESPONSE_LENGTH,
+            READ_ITEM_TIMEOUT_MS,
+            f"RXCC NVM item `{key}`",
+        )
 
-        if response is None:
+        if not response:
             self._last_response = None
             raise DeviceCommunicationError(f"RXCC NVM item response for `{key}` was empty.")
 
-        response_bytes = bytes(response)
-        if not response_bytes:
-            self._last_response = response_bytes
-            raise DeviceCommunicationError(f"RXCC NVM item response for `{key}` was empty.")
-
-        self._last_response = response_bytes
+        self._last_response = response
         try:
-            return parse_read_item_response(response_bytes, key)
+            return parse_read_item_response(response, key)
         except HendrixDeviceCommunicationError as exc:
             raise DeviceCommunicationError(str(exc)) from exc
+
+    def _read_matching_response(
+        self,
+        device: HidDevice,
+        request: bytes,
+        length: int,
+        timeout_ms: int,
+        description: str,
+    ) -> bytes | None:
+        deadline = time.monotonic() + (timeout_ms / 1000)
+
+        while True:
+            remaining_s = deadline - time.monotonic()
+            if remaining_s <= 0:
+                return None
+            remaining_ms = max(1, int(remaining_s * 1000))
+
+            response: bytes | Sequence[int] | None
+            try:
+                response = device.read(length, remaining_ms)
+            except Exception as exc:
+                raise DeviceCommunicationError(
+                    f"Failed while reading {description} ({exc})."
+                ) from exc
+
+            response_bytes = None if response is None else bytes(response)
+            self._last_read_results.append(response_bytes)
+            self._last_hid_events.append(("read", response_bytes))
+
+            if (
+                response_bytes
+                and self._accept_response(response_bytes, request)
+            ):
+                return response_bytes
+
+            if time.monotonic() >= deadline:
+                return None
+
+            time.sleep(COMMAND_READ_POLL_INTERVAL_S)
 
     def _reset_io_trace(self) -> None:
         self._last_written_reports = []

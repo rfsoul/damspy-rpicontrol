@@ -451,7 +451,10 @@ def create_app(
         html = (TEMPLATE_DIR / DEVICE_TEMPLATE_FILES[device_type]).read_text(encoding="utf-8")
         html = html.replace("__DEVICE_NAV__", " · ".join(nav_links))
         html = html.replace("</nav>", "</nav>" + _render_transport_controls(), 1)
-        html = html.replace("</body>", "<script src=\"/static/transport.js\"></script></body>")
+        html = html.replace(
+            "</body>",
+            '<script src="/static/transport.js?v=2"></script></body>',
+        )
         if device_type == DeviceType.RXCC.value:
             html = html.replace("__RXCC_GUIDE__", _render_rxcc_guide())
         return HTMLResponse(html)

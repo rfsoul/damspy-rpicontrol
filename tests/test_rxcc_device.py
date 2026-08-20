@@ -124,7 +124,10 @@ class RxccDeviceTest(unittest.TestCase):
 
     def test_apply_antenna_sends_single_antenna_report(self) -> None:
         factory = DeviceFactory()
-        controller = RxccController(device_factory=factory, backend_name="test")
+        controller = RxccController(
+            device_factory=factory,
+            backend_name="m5-serial:/dev/fake",
+        )
 
         reports_sent = controller.apply_antenna(AntennaPath.SECONDARY)
 
@@ -152,6 +155,39 @@ class RxccDeviceTest(unittest.TestCase):
             ],
         )
         self.assertTrue(factory.devices[0].closed)
+
+    def test_m5_start_rf_reads_each_semantic_command_group(self) -> None:
+        responses = [
+            bytes([0x10, 0x0E, 0x41]),
+            bytes([0x10, 0x0E, 0x41]),
+            bytes([0x10, 0x03, 0x41]),
+        ]
+        devices = [RecordingDevice(reads=[response]) for response in responses]
+        pending_devices = list(devices)
+        controller = RxccController(
+            device_factory=lambda: pending_devices.pop(0),
+            backend_name="m5-serial:/dev/fake",
+        )
+
+        reports_sent = controller.start_rf(
+            AntennaPath.MAIN,
+            channel=10,
+            power=5,
+        )
+
+        self.assertEqual(reports_sent, 5)
+        self.assertEqual(
+            [device.writes for device in devices],
+            [
+                frontend_mode_reports(FrontendMode.TRANSMITTING_PA),
+                antenna_reports(AntennaPath.MAIN),
+                [build_rf_start_report(channel=10, power=5)],
+            ],
+        )
+        writes, reads = controller.get_last_io_events()
+        self.assertEqual(len(writes), 5)
+        self.assertEqual(reads, responses)
+        self.assertEqual(controller.get_last_io_trace()[1], responses[-1])
 
     def test_start_rf_raw_sends_single_start_report(self) -> None:
         factory = DeviceFactory()
@@ -184,14 +220,14 @@ class RxccDeviceTest(unittest.TestCase):
         self.assertTrue(factory.devices[0].closed)
 
     def test_apply_gpio_records_device_response_when_present(self) -> None:
-        factory = DeviceFactory(reads=[bytes([0xAA, 0x55])])
+        factory = DeviceFactory(reads=[bytes([0x10, 0x0E, 0x41])])
         controller = RxccController(device_factory=factory, backend_name="test")
 
         controller.apply_gpio(pin=0, level=1)
         written_reports, response = controller.get_last_io_trace()
 
         self.assertEqual(written_reports, [bytes([0x0F, 0x0E, 0x00, 0x02, 0x00, 0x01])])
-        self.assertEqual(response, bytes([0xAA, 0x55]))
+        self.assertEqual(response, bytes([0x10, 0x0E, 0x41]))
 
     def test_apply_gpio_treats_none_response_as_no_bytes_returned(self) -> None:
         factory = DeviceFactory(reads=[None])
@@ -204,14 +240,31 @@ class RxccDeviceTest(unittest.TestCase):
         self.assertIsNone(response)
 
     def test_apply_gpio_polls_until_delayed_response_arrives(self) -> None:
-        factory = DeviceFactory(reads=[None, b"", bytes([0xAA, 0x55])])
+        factory = DeviceFactory(reads=[None, b"", bytes([0x10, 0x0E, 0x41])])
         controller = RxccController(device_factory=factory, backend_name="test")
 
         with unittest.mock.patch("damspy_rpicontrol.rxcc_device.COMMAND_READ_POLL_INTERVAL_S", 0):
             controller.apply_gpio(pin=0, level=1)
         _, response = controller.get_last_io_trace()
 
-        self.assertEqual(response, bytes([0xAA, 0x55]))
+        self.assertEqual(response, bytes([0x10, 0x0E, 0x41]))
+
+    def test_command_read_discards_stale_response_until_command_matches(self) -> None:
+        stale = bytes([0x10, 0x0D, 0x41])
+        matched = bytes([0x10, 0x0E, 0x41])
+        factory = DeviceFactory(reads=[stale, matched])
+        controller = RxccController(
+            device_factory=factory,
+            backend_name="m5-serial:/dev/fake",
+        )
+
+        with unittest.mock.patch(
+            "damspy_rpicontrol.rxcc_device.COMMAND_READ_POLL_INTERVAL_S", 0
+        ):
+            controller.apply_gpio(pin=0, level=1)
+
+        self.assertEqual(controller.get_last_io_trace()[1], matched)
+        self.assertEqual(controller.get_last_io_events()[1], [stale, matched])
 
     def test_wireless_pro_start_rf_sends_single_embedded_antenna_report(self) -> None:
         factory = DeviceFactory()
