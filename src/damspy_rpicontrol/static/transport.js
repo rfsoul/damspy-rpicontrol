@@ -9,15 +9,17 @@
 
   function show(payload) {
     mode.value = payload.mode;
-    port.value = payload.mode === "m5" && payload.serial_port
+    port.value = payload.mode !== "usb" && payload.serial_port
       ? "M5 Gateway detected"
       : "Detected automatically";
     status.textContent = `${payload.connected ? "Connected" : "Disconnected"}: ${payload.detail}`;
     status.dataset.connected = String(payload.connected);
     if (pathHelp) {
-      pathHelp.textContent = payload.mode === "m5"
-        ? "M5 path: this server → M5 Gateway → ESP-NOW → M5 Node → USB HID → RØDE product."
-        : "USB path: this server → USB HID → RØDE product.";
+      pathHelp.textContent = payload.mode === "m5-proxy"
+        ? "M5 Proxy path: server → Gateway → ESP-NOW → Core → Pi USB proxy → RØDE product."
+        : payload.mode === "m5"
+          ? "M5 path: this server → M5 Gateway → ESP-NOW → M5 Node → USB HID → RØDE product."
+          : "USB path: this server → USB HID → RØDE product.";
     }
     if (surveyButton) surveyButton.disabled = payload.mode !== "m5";
   }
@@ -32,9 +34,11 @@
   mode.addEventListener("change", () => {
     port.disabled = true;
     if (pathHelp) {
-      pathHelp.textContent = mode.value === "m5"
-        ? "M5 path: this server → M5 Gateway → ESP-NOW → M5 Node → USB HID → RØDE product."
-        : "USB path: this server → USB HID → RØDE product.";
+      pathHelp.textContent = mode.value === "m5-proxy"
+        ? "M5 Proxy path: server → Gateway → ESP-NOW → Core → Pi USB proxy → RØDE product."
+        : mode.value === "m5"
+          ? "M5 path: this server → M5 Gateway → ESP-NOW → M5 Node → USB HID → RØDE product."
+          : "USB path: this server → USB HID → RØDE product.";
     }
     if (surveyButton) surveyButton.disabled = mode.value !== "m5";
   });

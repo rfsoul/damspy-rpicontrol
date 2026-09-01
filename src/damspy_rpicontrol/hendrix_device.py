@@ -8,6 +8,8 @@ from typing import Callable, Iterator, Protocol, Sequence
 
 import importlib
 
+from damspy_rpicontrol.hid_compat import load_hidapi
+
 from damspy_rpicontrol.m5_transport import M5TransportError
 
 VENDOR_ID = 0x19F7
@@ -84,7 +86,7 @@ DeviceFactory = Callable[[], HidDevice]
 
 def detect_hid_backend(product_id: int) -> tuple[DeviceFactory | None, str]:
     try:
-        hidapi_module = importlib.import_module("hidapi")
+        hidapi_module = load_hidapi(importlib.import_module)
     except Exception:
         return None, "unavailable"
 

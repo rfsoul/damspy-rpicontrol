@@ -7,6 +7,8 @@ from typing import Callable, Iterator, Protocol, Sequence
 
 import importlib
 
+from damspy_rpicontrol.hid_compat import load_hidapi
+
 from damspy_rpicontrol.m5_transport import M5TransportError
 
 from damspy_rpicontrol.hendrix_device import (
@@ -132,7 +134,7 @@ def detect_hid_backend(
     hidapi.Device(vendor_id=..., product_id=...)
     """
     try:
-        hidapi_module = importlib.import_module("hidapi")
+        hidapi_module = load_hidapi(importlib.import_module)
     except Exception:
         return None, "unavailable"
 

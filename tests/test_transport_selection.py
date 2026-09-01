@@ -82,6 +82,7 @@ class TransportSelectionTest(unittest.TestCase):
 
         self.assertIn("RØDE transport", body)
         self.assertIn("Apply transport", body)
+        self.assertIn('value="m5-proxy"', body)
         self.assertIn("USB path: this server", body)
         self.assertIn("validates the selected transport", body)
 

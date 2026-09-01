@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 import importlib
+
+from damspy_rpicontrol.hid_compat import load_hidapi
 import threading
 import subprocess
 import sys
@@ -32,6 +34,7 @@ from damspy_rpicontrol.models import (
     TransportStatusResponse,
 )
 from damspy_rpicontrol.m5_transport import M5SerialHidTransport, M5TransportError
+from damspy_rpicontrol.m5_proxy import M5ProxyBroker
 from damspy_rpicontrol.transport_capture import run_transport_capture
 from damspy_rpicontrol.hendrix_device import (
     DeviceCommunicationError as HendrixDeviceCommunicationError,
@@ -94,7 +97,7 @@ def _device_info_value(entry, field: str):
 def _detect_usb_identity(profile: str) -> dict:
     expected_ids = USB_PROFILE_DEVICE_IDS[profile]
     try:
-        hidapi_module = importlib.import_module("hidapi")
+        hidapi_module = load_hidapi(importlib.import_module)
         entries = hidapi_module.enumerate()
     except Exception as exc:
         return {
@@ -128,7 +131,7 @@ def _render_transport_controls() -> str:
     return """
 <div id="transport-controls" style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;margin-top:.8rem">
   <label>RØDE transport
-    <select id="transport-mode"><option value="usb">USB</option><option value="m5">M5</option></select>
+    <select id="transport-mode"><option value="usb">USB</option><option value="m5">M5</option><option value="m5-proxy">M5 Proxy</option></select>
   </label>
   <label>M5 Gateway
     <input id="transport-port" value="Detected automatically" disabled>
@@ -190,6 +193,7 @@ def create_app(
     m5_transport_factory: Callable[[str], M5SerialHidTransport] | None = None,
     usb_identity_provider: Callable[[str], dict] | None = None,
     m5_port_provider: Callable[[], Sequence[str]] | None = None,
+    m5_proxy_factory: Callable[..., M5ProxyBroker] | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="damspy-rpicontrol",
@@ -220,7 +224,9 @@ def create_app(
     app.state.transport_connected = app.state.controller.is_available
     app.state.transport_detail = "Using direct USB HID."
     app.state.m5_transport = None
+    app.state.m5_proxy = None
     app.state.m5_transport_factory = m5_transport_factory or M5SerialHidTransport
+    app.state.m5_proxy_factory = m5_proxy_factory or M5ProxyBroker
     app.state.m5_port_provider = m5_port_provider
     app.state.usb_identity_provider = usb_identity_provider or _detect_usb_identity
     app.state.capture_lock = threading.Lock()
@@ -264,6 +270,31 @@ def create_app(
             )
         return candidates[0]
 
+    def _detect_proxy_ports() -> tuple[str, str]:
+        candidates = [
+            port for port in _serial_ports()
+            if port.startswith("/dev/serial/by-id/")
+            and "Espressif_USB_JTAG_serial_debug_unit" in Path(port).name
+        ]
+        if len(candidates) != 2:
+            raise HTTPException(
+                status_code=409,
+                detail=f"M5 Proxy requires exactly one Gateway and one Core; found {len(candidates)} M5 serial devices.",
+            )
+        gateway_port = None
+        for candidate in candidates:
+            probe = app.state.m5_transport_factory(candidate)
+            try:
+                if probe.probe_gateway():
+                    if gateway_port is not None:
+                        raise HTTPException(status_code=409, detail="M5 Proxy found more than one Gateway.")
+                    gateway_port = candidate
+            finally:
+                probe.close()
+        if gateway_port is None:
+            raise HTTPException(status_code=409, detail="M5 Proxy could not identify the Gateway.")
+        return gateway_port, next(port for port in candidates if port != gateway_port)
+
     def _transport_status() -> TransportStatusResponse:
         return TransportStatusResponse(
             mode=app.state.transport_mode,
@@ -280,6 +311,7 @@ def create_app(
     @app.put("/api/transport", response_model=TransportStatusResponse)
     def set_transport(payload: TransportConfigRequest) -> TransportStatusResponse:
         old_m5_transport = app.state.m5_transport
+        old_m5_proxy = app.state.m5_proxy
         if payload.mode == TransportMode.USB:
             for name, current_controller in app.state.usb_controllers.items():
                 setattr(app.state, name, current_controller)
@@ -288,15 +320,33 @@ def create_app(
             app.state.transport_connected = app.state.controller.is_available
             app.state.transport_detail = "Using direct USB HID."
             app.state.m5_transport = None
+            app.state.m5_proxy = None
             if old_m5_transport is not None:
                 old_m5_transport.close()
+            if old_m5_proxy is not None:
+                old_m5_proxy.close()
             return _transport_status()
 
         if old_m5_transport is not None:
             old_m5_transport.close()
             app.state.m5_transport = None
+        if old_m5_proxy is not None:
+            old_m5_proxy.close()
+            app.state.m5_proxy = None
 
-        serial_port = _detect_m5_port()
+        core_port = None
+        if payload.mode == TransportMode.M5_PROXY:
+            serial_port, core_port = _detect_proxy_ports()
+            direct_factory = app.state.usb_controllers["controller"]._device_factory
+            if direct_factory is None:
+                raise HTTPException(status_code=409, detail="Direct RXCC HID is unavailable for M5 Proxy.")
+            app.state.m5_proxy = app.state.m5_proxy_factory(
+                core_port,
+                direct_factory,
+                lambda: app.state.usb_identity_provider("rxcc"),
+            )
+        else:
+            serial_port = _detect_m5_port()
         transport = app.state.m5_transport_factory(serial_port)
         device_factory = transport.device_factory
         app.state.controller = RxccController(device_factory=device_factory, backend_name=transport.backend_name)
@@ -315,11 +365,13 @@ def create_app(
         app.state.tx_via_rxcc_controller = HendrixController(
             product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
         )
-        app.state.transport_mode = TransportMode.M5
+        app.state.transport_mode = payload.mode
         app.state.serial_port = serial_port
         app.state.m5_transport = transport
         app.state.transport_connected = True
         app.state.transport_detail = (
+            f"M5 Proxy active through Gateway and USB Core ({Path(core_port).name})."
+            if core_port else
             "M5 Gateway detected locally. M5 Node status has not been checked."
         )
         return _transport_status()
@@ -374,7 +426,7 @@ def create_app(
                 "hendrix-rx": app.state.usb_controllers["rx_controller"],
                 "hendrix-tx-via-rxcc": app.state.usb_controllers["tx_via_rxcc_controller"],
             }, None
-        if app.state.transport_mode == TransportMode.M5 and app.state.m5_transport is not None:
+        if app.state.transport_mode in {TransportMode.M5, TransportMode.M5_PROXY} and app.state.m5_transport is not None:
             return _capture_controllers(
                 app.state.m5_transport.device_factory, app.state.m5_transport.backend_name
             ), None
@@ -611,7 +663,7 @@ def create_app(
 
     @app.post("/api/healthcheck", response_model=HealthcheckResponse, response_model_exclude_none=True)
     def run_healthcheck() -> HealthcheckResponse:
-        if app.state.transport_mode == TransportMode.M5:
+        if app.state.transport_mode in {TransportMode.M5, TransportMode.M5_PROXY}:
             transport = app.state.m5_transport
             try:
                 info = transport.get_remote_device_info()
@@ -620,16 +672,16 @@ def create_app(
             except M5TransportError as exc:
                 app.state.transport_connected = False
                 app.state.transport_detail = str(exc)
-                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=False, output=f"FAIL: {exc}")
+                return HealthcheckResponse(operation="healthcheck", transport=app.state.transport_mode, passed=False, exit_code=1, connected=False, output=f"FAIL: {exc}")
             if not info.connected or not info.hid_ready:
                 state = "no USB HID device is attached" if not info.connected else "the USB HID device is not ready"
-                return HealthcheckResponse(operation="healthcheck", transport=TransportMode.M5, passed=False, exit_code=1, connected=info.connected, hid_ready=info.hid_ready, output=f"M5 Gateway connected; {state} on the M5 Node.")
+                return HealthcheckResponse(operation="healthcheck", transport=app.state.transport_mode, passed=False, exit_code=1, connected=info.connected, hid_ready=info.hid_ready, output=f"M5 Gateway connected; {state} on the M5 Node.")
             device_name = REMOTE_DEVICE_NAMES.get((info.vendor_id, info.product_id))
             vendor_id = f"0x{info.vendor_id:04X}"
             product_id = f"0x{info.product_id:04X}"
             friendly = device_name or "Unknown USB HID device"
             return HealthcheckResponse(
-                operation="healthcheck", transport=TransportMode.M5, passed=True, exit_code=0, connected=True, hid_ready=True,
+                operation="healthcheck", transport=app.state.transport_mode, passed=True, exit_code=0, connected=True, hid_ready=True,
                 vendor_id=vendor_id, product_id=product_id, device_name=device_name,
                 output=f"PASS: Remote USB HID device connected: {friendly} ({vendor_id}:{product_id}).",
             )

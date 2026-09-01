@@ -104,6 +104,7 @@ class RawCommandRequest(BaseModel):
 class TransportMode(str, Enum):
     USB = "usb"
     M5 = "m5"
+    M5_PROXY = "m5-proxy"
 
 
 class TransportCaptureRequest(BaseModel):

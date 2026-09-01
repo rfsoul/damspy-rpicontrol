@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from damspy_rpicontrol.hid_compat import load_hidapi
+
 
 SUPPORTED_DEVICE_IDS = {
     ("19f7", "0056"): "RODE Wireless PRO TX",
@@ -117,7 +119,7 @@ def test_open(path):
 
 def load_hidapi_module():
     try:
-        return importlib.import_module("hidapi"), ""
+        return load_hidapi(importlib.import_module), ""
     except Exception as exc:
         return None, str(exc)
 

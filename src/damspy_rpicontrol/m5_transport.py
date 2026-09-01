@@ -48,6 +48,8 @@ class MessageType(IntEnum):
     READ_RESPONSE = 0x04
     STATUS_REQUEST = 0x05
     STATUS_RESPONSE = 0x06
+    GATEWAY_DIAG_REQUEST = 0x0B
+    GATEWAY_DIAG_RESPONSE = 0x0C
 
 
 class Result(IntEnum):
@@ -311,6 +313,19 @@ class M5SerialHidTransport:
             vendor_id,
             product_id,
         )
+
+    def probe_gateway(self) -> bool:
+        """Return true only when this serial port answers the local Gateway diagnostic."""
+        try:
+            self.request(
+                MessageType.GATEWAY_DIAG_REQUEST,
+                b"",
+                MessageType.GATEWAY_DIAG_RESPONSE,
+                timeout_s=0.5,
+            )
+            return True
+        except M5TransportError:
+            return False
 
     def start_standalone_survey(self) -> None:
         with self._lock:
