@@ -70,11 +70,18 @@ class StartRfRequest(BaseModel):
         return self
 
 
+class RodelinkFrequencyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    frequency_khz: int = Field(..., ge=460000, le=636875, multiple_of=25)
+
+
 class DeviceType(str, Enum):
     RXCC = "rxcc"
     TX = "tx"
     RX = "rx"
     WIRELESS_PRO_RX = "wireless-pro-rx"
+    RODELINK_TX = "rodelink-tx"
 
 
 class DeviceCommand(str, Enum):

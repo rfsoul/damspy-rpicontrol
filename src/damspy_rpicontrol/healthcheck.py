@@ -13,6 +13,7 @@ SUPPORTED_DEVICE_IDS = {
     ("19f7", "0056"): "RODE Wireless PRO TX",
     ("19f7", "0058"): "RODE Wireless PRO RX",
     ("19f7", "008a"): "Hendrix TX",
+    ("19f7", "0088"): "RØDELink UHF TX",
     ("19f7", "008b"): "Hendrix RX",
     ("19f7", "008c"): "RODE RXCC",
     ("1a86", "8091"): "RODE RXCC (QinHeng USB HUB alias)",

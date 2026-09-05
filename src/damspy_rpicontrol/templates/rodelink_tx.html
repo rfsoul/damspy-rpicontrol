@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>damspy-rpicontrol - RØDELink UHF TX 0088</title>
+<style>
+:root{color-scheme:light;font-family:"Segoe UI",sans-serif}
+body{margin:0;background:#f2f4f7;color:#111827}
+main{max-width:760px;margin:0 auto;padding:2rem 1rem 3rem}
+section{background:#fff;border:1px solid #d0d7de;border-radius:12px;padding:1rem;margin-bottom:1rem;box-shadow:0 6px 18px rgba(15,23,42,.06)}
+.device-nav{font-size:.95rem;margin:.6rem 0 .8rem}.device-nav a[aria-current="page"]{font-weight:700;text-decoration:underline}
+h1,h2{margin-top:0}form{display:grid;gap:.75rem}label{display:grid;gap:.35rem;font-weight:600}
+select,input,button{font:inherit;padding:.7rem .8rem;border-radius:8px;border:1px solid #cbd5e1}
+button{cursor:pointer;background:#0f172a;color:#fff;border:none}.secondary{background:#475569}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:1rem;min-height:6rem}
+.health-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}.health-led{width:14px;height:14px;border-radius:9999px;background:#9ca3af;border:1px solid #6b7280}.health-led.pass{background:#22c55e}.health-led.fail{background:#ef4444}.hint{color:#475569}
+</style>
+</head>
+<body><main>
+<section><h1>damspy-rpicontrol</h1><p>Manual LAN control page for: <strong>RØDELink UHF TX 0088</strong> (<code>rodelink-tx</code>).</p><nav class="device-nav">Devices: __DEVICE_NAV__</nav><div class="health-row"><button class="secondary" id="health-check" type="button">Check health</button><span id="health-led" class="health-led" aria-label="Health status indicator"></span></div></section>
+<section><h2>Frequency</h2><form id="frequency-form"><label>Frequency (kHz)<input id="frequency-khz" name="frequency_khz" type="number" min="460000" max="636875" step="25" value="600000" required></label><button type="submit">Set Frequency</button></form><p class="hint">Valid 25 kHz steps from 460000 to the safer stable maximum of 636875 kHz. An ACK does not prove RF lock; verify with RF test equipment.</p></section>
+<section><h2>Device Info</h2><form id="serial-number-form"><label>Serial Number<input id="serial-number" type="text" readonly placeholder="Not read yet"></label><button type="submit">Read Serial Number</button></form></section>
+<section><h2>Result</h2><pre id="output">Ready.</pre></section>
+</main><script>
+const output=document.getElementById("output"),healthLed=document.getElementById("health-led"),serialNumber=document.getElementById("serial-number");
+function show(title,payload){const lines=[title];if(payload.detail)lines.push(`Detail: ${payload.detail}`);if(payload.command_sent?.length)lines.push("Bytes written:",...payload.command_sent);if(Object.prototype.hasOwnProperty.call(payload,"device_response"))lines.push("Bytes read:",payload.device_response||"(no bytes returned)");if(payload.serial_number)lines.push(`Serial Number: ${payload.serial_number}`);output.textContent=lines.join("\n")}
+async function request(endpoint,payload){const response=await fetch(endpoint,{method:"POST",headers:payload?{"Content-Type":"application/json"}:{},body:payload?JSON.stringify(payload):undefined});let body;try{body=await response.json()}catch(_error){body={detail:"Response was not valid JSON."}}if(!response.ok)throw body;return body}
+document.getElementById("frequency-form").addEventListener("submit",async event=>{event.preventDefault();try{show("Success",await request("/api/rodelink-tx/frequency",{frequency_khz:Number(document.getElementById("frequency-khz").value)}))}catch(error){show("Error",error)}});
+document.getElementById("serial-number-form").addEventListener("submit",async event=>{event.preventDefault();try{const payload=await request("/api/serial-number/rodelink-tx");serialNumber.value=payload.serial_number;show("Success",payload)}catch(error){serialNumber.value="";show("Error",error)}});
+document.getElementById("health-check").addEventListener("click",async()=>{try{const payload=await request("/api/healthcheck");healthLed.className=`health-led ${payload.passed?"pass":"fail"}`;output.textContent=payload.output||"(no healthcheck output)"}catch(error){healthLed.className="health-led fail";show("Error",error)}});
+</script></body></html>

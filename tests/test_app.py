@@ -9,6 +9,7 @@ from damspy_rpicontrol.models import (
     FrontendMode,
     FrontendModeRequest,
     RawCommandRequest,
+    RodelinkFrequencyRequest,
     StartRfRequest,
 )
 from damspy_rpicontrol.rxcc_device import RxccController, WirelessProRxController
@@ -171,6 +172,43 @@ class AppStructureTest(unittest.TestCase):
         self.assertIn("/api/devices/{device_type}/commands/{command}", route_paths)
         self.assertIn("/api/healthcheck", route_paths)
         self.assertIn("/api/test-command", route_paths)
+        self.assertIn("/api/rodelink-tx/frequency", route_paths)
+
+    def test_rodelink_page_only_exposes_frequency_and_serial_controls(self) -> None:
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        route = next(route for route in app.routes if route.path == "/devices/{device_type}")
+
+        body = route.endpoint("rodelink-tx").body.decode("utf-8")
+
+        self.assertIn("RØDELink UHF TX 0088", body)
+        self.assertIn('min="460000" max="636875" step="25"', body)
+        self.assertIn("Set Frequency", body)
+        self.assertIn("Read Serial Number", body)
+        self.assertNotIn("Stop RF", body)
+        self.assertNotIn("Power", body)
+
+    def test_rodelink_frequency_endpoint_uses_dedicated_controller(self) -> None:
+        class StubRodelinkController:
+            def __init__(self):
+                self.frequency_khz = None
+
+            def set_frequency(self, frequency_khz):
+                self.frequency_khz = frequency_khz
+                return 1
+
+            def get_last_io_trace(self):
+                return [bytes([0x11, 0x1B] + [0x00] * 35)], bytes([0x12, 0x1B, 0x41])
+
+        app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))
+        controller = StubRodelinkController()
+        app.state.rodelink_tx_controller = controller
+        route = next(route for route in app.routes if route.path == "/api/rodelink-tx/frequency")
+
+        response = route.endpoint(RodelinkFrequencyRequest(frequency_khz=600000), Request({"type": "http", "app": app}))
+
+        self.assertEqual(controller.frequency_khz, 600000)
+        self.assertEqual(response.operation, "set_frequency")
+        self.assertIn("does not confirm RF lock", response.detail)
 
     def test_root_defaults_to_rxcc_page(self) -> None:
         app = create_app(controller=RxccController(device_factory=lambda: None, backend_name="test"))

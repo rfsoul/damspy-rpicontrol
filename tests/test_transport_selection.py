@@ -98,8 +98,10 @@ class TransportSelectionTest(unittest.TestCase):
         self.assertIs(app.state.m5_transport, transports[0])
         self.assertEqual(app.state.controller.backend_name, f"m5-serial:{self.STICK_PORT}")
         self.assertEqual(app.state.tx_controller.backend_name, f"m5-serial:{self.STICK_PORT}")
+        self.assertEqual(app.state.rodelink_tx_controller.backend_name, f"m5-serial:{self.STICK_PORT}")
         self.assertEqual(app.state.controller.product_id, 0x008C)
         self.assertEqual(app.state.tx_controller.product_id, 0x008A)
+        self.assertEqual(app.state.rodelink_tx_controller.product_id, 0x0088)
 
     def test_m5_selection_does_not_contact_remote_node(self) -> None:
         app, transports = self.make_app()

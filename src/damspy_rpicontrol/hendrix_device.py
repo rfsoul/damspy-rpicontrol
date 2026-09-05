@@ -15,6 +15,7 @@ from damspy_rpicontrol.m5_transport import M5TransportError
 VENDOR_ID = 0x19F7
 TX_PRODUCT_ID = 0x008A
 RX_PRODUCT_ID = 0x008B
+RODELINK_TX_PRODUCT_ID = 0x0088
 REPORT_ID = 0x0F
 BATTERY_REQUEST_REPORT_ID = 0x01
 BATTERY_RESPONSE_REPORT_ID = 0x02
@@ -45,6 +46,14 @@ LED_TEST_RESERVED_LENGTH = 12
 LED_FLASH_STEP_DELAY_S = 0.25
 LED_FLASH_COUNT = 2
 LED_MAX_BRIGHTNESS = 0xFF
+RODELINK_SET_FREQUENCY_REPORT_ID = 0x11
+RODELINK_SET_FREQUENCY_RESPONSE_ID = 0x12
+RODELINK_SET_FREQUENCY_COMMAND_ID = 0x1B
+RODELINK_SET_FREQUENCY_REPORT_LENGTH = 37
+RODELINK_FREQUENCY_MIN_KHZ = 460000
+RODELINK_FREQUENCY_MAX_KHZ = 636875
+RODELINK_FREQUENCY_STEP_KHZ = 25
+RODELINK_SET_FREQUENCY_ACK_PREFIX = bytes([0x12, 0x1B, ord("A")])
 
 INTER_WRITE_DELAY_S = 0.10
 POST_OPEN_DELAY_S = 0.02
@@ -114,6 +123,26 @@ def build_rf_start_report(channel: int, power: int) -> bytes:
 
 def build_rf_stop_report() -> bytes:
     return build_report([0x0D, 0x00])
+
+
+def build_rodelink_set_frequency_report(frequency_khz: int) -> bytes:
+    if not RODELINK_FREQUENCY_MIN_KHZ <= frequency_khz <= RODELINK_FREQUENCY_MAX_KHZ:
+        raise ValueError(
+            f"RØDELink TX frequency must be between {RODELINK_FREQUENCY_MIN_KHZ} "
+            f"and {RODELINK_FREQUENCY_MAX_KHZ} kHz."
+        )
+    if frequency_khz % RODELINK_FREQUENCY_STEP_KHZ:
+        raise ValueError(f"RØDELink TX frequency must use a {RODELINK_FREQUENCY_STEP_KHZ} kHz step.")
+
+    report = bytearray(RODELINK_SET_FREQUENCY_REPORT_LENGTH)
+    report[0:4] = bytes([
+        RODELINK_SET_FREQUENCY_REPORT_ID,
+        RODELINK_SET_FREQUENCY_COMMAND_ID,
+        0x00,
+        0x00,
+    ])
+    report[4:8] = frequency_khz.to_bytes(4, "little")
+    return bytes(report)
 
 
 def build_charging_control_report(enabled: bool) -> bytes:
@@ -438,3 +467,22 @@ class HendrixController:
         self._last_response = None
         self._last_read_results = []
         self._last_hid_events = []
+
+
+class RodelinkTxController(HendrixController):
+    """Frequency and NVM control for the RØDELink UHF TX (19F7:0088)."""
+
+    def __init__(self, device_factory: DeviceFactory | None = None, backend_name: str | None = None) -> None:
+        super().__init__(RODELINK_TX_PRODUCT_ID, device_factory=device_factory, backend_name=backend_name)
+
+    def set_frequency(self, frequency_khz: int) -> int:
+        reports_sent = self._execute([build_rodelink_set_frequency_report(frequency_khz)])
+        if self._last_response is not None and not self._last_response.startswith(RODELINK_SET_FREQUENCY_ACK_PREFIX):
+            prefix = " ".join(f"{byte:02X}" for byte in self._last_response[:3])
+            raise DeviceCommunicationError(
+                f"Unexpected RØDELink TX set-frequency response prefix {prefix}; expected 12 1B 41."
+            )
+        return reports_sent
+
+    def read_device_name(self) -> str:
+        return self.read_nvm_item("DEVICE_NAME")

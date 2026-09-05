@@ -25,6 +25,7 @@ from damspy_rpicontrol.models import (
     HealthcheckResponse,
     OperationResponse,
     RawCommandRequest,
+    RodelinkFrequencyRequest,
     SerialNumberResponse,
     StartRfRequest,
     SurveyModeResponse,
@@ -40,6 +41,8 @@ from damspy_rpicontrol.hendrix_device import (
     DeviceCommunicationError as HendrixDeviceCommunicationError,
     DeviceUnavailableError as HendrixDeviceUnavailableError,
     HendrixController,
+    RodelinkTxController,
+    RODELINK_TX_PRODUCT_ID,
     RX_PRODUCT_ID,
     TX_PRODUCT_ID,
     VENDOR_ID as HENDRIX_VENDOR_ID,
@@ -61,6 +64,7 @@ SUPPORTED_WEB_DEVICES: dict[str, str] = {
     "tx": "Hendrix TX 008A",
     "rx": "Hendrix RX 008B",
     "wireless-pro-rx": "RODE Wireless PRO RX 0058",
+    "rodelink-tx": "RØDELink UHF TX 0088",
     "test-command": "Test Command",
 }
 DEVICE_TEMPLATE_FILES: dict[str, str] = {
@@ -68,6 +72,7 @@ DEVICE_TEMPLATE_FILES: dict[str, str] = {
     "tx": "tx.html",
     "rx": "rx.html",
     "wireless-pro-rx": "wireless_pro_rx.html",
+    "rodelink-tx": "rodelink_tx.html",
     "test-command": "test_command.html",
 }
 TX_LED_FLASH_COLORS: dict[str, int] = {
@@ -122,6 +127,7 @@ REMOTE_DEVICE_NAMES = {
     (0x19F7, 0x0056): "RODE Wireless PRO TX",
     (0x19F7, 0x0058): "RODE Wireless PRO RX",
     (0x19F7, 0x008A): "Hendrix TX",
+    (0x19F7, 0x0088): "RØDELink UHF TX",
     (0x19F7, 0x008B): "Hendrix RX",
     (0x19F7, 0x008C): "RODE RXCC",
     (0x1A86, 0x8091): "RODE RXCC (QinHeng USB HUB alias)",
@@ -204,6 +210,7 @@ def create_app(
     app.state.controller = controller or RxccController()
     app.state.wireless_pro_rx_controller = WirelessProRxController(product_id=WIRELESS_PRO_PRODUCT_IDS)
     app.state.tx_controller = HendrixController(product_id=TX_PRODUCT_ID)
+    app.state.rodelink_tx_controller = RodelinkTxController()
     app.state.rx_controller = HendrixController(product_id=RX_PRODUCT_ID)
     app.state.test_command_controller = RxccController(product_id=TEST_COMMAND_DEVICE_IDS)
     app.state.tx_via_rxcc_controller = HendrixController(
@@ -215,6 +222,7 @@ def create_app(
         "controller": app.state.controller,
         "wireless_pro_rx_controller": app.state.wireless_pro_rx_controller,
         "tx_controller": app.state.tx_controller,
+        "rodelink_tx_controller": app.state.rodelink_tx_controller,
         "rx_controller": app.state.rx_controller,
         "test_command_controller": app.state.test_command_controller,
         "tx_via_rxcc_controller": app.state.tx_via_rxcc_controller,
@@ -355,6 +363,9 @@ def create_app(
         )
         app.state.tx_controller = HendrixController(
             product_id=TX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
+        )
+        app.state.rodelink_tx_controller = RodelinkTxController(
+            device_factory=device_factory, backend_name=transport.backend_name
         )
         app.state.rx_controller = HendrixController(
             product_id=RX_PRODUCT_ID, device_factory=device_factory, backend_name=transport.backend_name
@@ -768,8 +779,12 @@ def create_app(
                 DeviceCommunicationError,
             ) as exc:
                 raise _translate_device_error(exc) from exc
-        elif resolved_device_type == DeviceType.TX:
-            controller = request.app.state.tx_controller
+        elif resolved_device_type in {DeviceType.TX, DeviceType.RODELINK_TX}:
+            controller = (
+                request.app.state.tx_controller
+                if resolved_device_type == DeviceType.TX
+                else request.app.state.rodelink_tx_controller
+            )
             try:
                 serial_number = controller.read_serial_number()
             except (
@@ -778,13 +793,39 @@ def create_app(
             ) as exc:
                 raise _translate_device_error(exc) from exc
         else:
-            raise HTTPException(status_code=404, detail="Serial-number read is only supported for Hendrix TX and RXCC.")
+            raise HTTPException(status_code=404, detail="Serial-number read is only supported for RØDELink TX, Hendrix TX, and RXCC.")
         command_sent, device_response = _format_trace(*controller.get_last_io_trace())
 
         return SerialNumberResponse(
             detail=f"Read serial number for `{resolved_device_type.value}` using NVM key `NORDIC_ID`.",
             device=resolved_device_type,
             serial_number=serial_number,
+            command_sent=command_sent,
+            device_response=device_response,
+            read_attempted=True,
+        )
+
+    @app.post("/api/rodelink-tx/frequency", response_model=OperationResponse)
+    def set_rodelink_tx_frequency(payload: RodelinkFrequencyRequest, request: Request) -> OperationResponse:
+        controller = request.app.state.rodelink_tx_controller
+        try:
+            reports_sent = controller.set_frequency(payload.frequency_khz)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (
+            HendrixDeviceUnavailableError,
+            HendrixDeviceCommunicationError,
+        ) as exc:
+            raise _translate_device_error(exc) from exc
+        command_sent, device_response = _format_trace(*controller.get_last_io_trace())
+
+        return OperationResponse(
+            operation="set_frequency",
+            detail=(
+                f"Set RØDELink TX frequency to {payload.frequency_khz} kHz. "
+                "An ACK does not confirm RF lock; verify the transmitted frequency with RF test equipment."
+            ),
+            reports_sent=reports_sent,
             command_sent=command_sent,
             device_response=device_response,
             read_attempted=True,

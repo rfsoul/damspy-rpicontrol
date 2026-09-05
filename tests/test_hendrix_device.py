@@ -6,6 +6,7 @@ from damspy_rpicontrol.hendrix_device import (
     BatteryInfo,
     DeviceCommunicationError,
     HendrixController,
+    RodelinkTxController,
     build_battery_info_request,
     build_charging_control_report,
     build_ctx_low_report,
@@ -13,6 +14,7 @@ from damspy_rpicontrol.hendrix_device import (
     build_led_off_reports,
     build_led_test_report,
     build_read_item_report,
+    build_rodelink_set_frequency_report,
     build_rf_start_report,
     build_rf_stop_report,
     parse_battery_info_response,
@@ -65,6 +67,21 @@ class HendrixDeviceTest(unittest.TestCase):
 
     def test_rf_stop_report_matches_reference_shape(self) -> None:
         self.assertEqual(build_rf_stop_report(), bytes([0x0F, 0x0D, 0x00]))
+
+    def test_rodelink_600_mhz_report_matches_observed_bytes(self) -> None:
+        self.assertEqual(
+            build_rodelink_set_frequency_report(600000),
+            bytes([0x11, 0x1B, 0x00, 0x00, 0xC0, 0x27, 0x09, 0x00] + [0x00] * 29),
+        )
+
+    def test_rodelink_frequency_rejects_non_25_khz_step(self) -> None:
+        with self.assertRaisesRegex(ValueError, "25 kHz step"):
+            build_rodelink_set_frequency_report(600001)
+
+    def test_rodelink_frequency_uses_stable_maximum(self) -> None:
+        self.assertEqual(len(build_rodelink_set_frequency_report(636875)), 37)
+        with self.assertRaisesRegex(ValueError, "between 460000 and 636875"):
+            build_rodelink_set_frequency_report(636900)
 
     def test_charging_control_reports_match_requested_bytes(self) -> None:
         self.assertEqual(build_charging_control_report(enabled=True), bytes([21, 0x55, 0x01]))
@@ -141,6 +158,25 @@ class HendrixDeviceTest(unittest.TestCase):
             ],
         )
         self.assertTrue(factory.devices[0].closed)
+
+    def test_rodelink_set_frequency_accepts_expected_ack(self) -> None:
+        factory = DeviceFactory(reads=[bytes([0x12, 0x1B, 0x41])])
+        controller = RodelinkTxController(device_factory=factory, backend_name="test-m5")
+
+        reports_sent = controller.set_frequency(600000)
+
+        self.assertEqual(reports_sent, 1)
+        self.assertEqual(
+            factory.devices[0].writes,
+            [bytes([0x11, 0x1B, 0x00, 0x00, 0xC0, 0x27, 0x09, 0x00] + [0x00] * 29)],
+        )
+
+    def test_rodelink_set_frequency_rejects_unexpected_response(self) -> None:
+        factory = DeviceFactory(reads=[bytes([0x12, 0x1B, 0x4E])])
+        controller = RodelinkTxController(device_factory=factory, backend_name="test")
+
+        with self.assertRaisesRegex(DeviceCommunicationError, "expected 12 1B 41"):
+            controller.set_frequency(600000)
 
     def test_set_ctx_low_sends_single_low_report(self) -> None:
         factory = DeviceFactory()
